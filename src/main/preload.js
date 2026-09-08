@@ -30,6 +30,8 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.on('hotkey-generate', h);
     return () => ipcRenderer.removeListener('hotkey-generate', h);
   },
+  // question-capture-mode 会在初始化后接管热键语义；用于清掉旧的“直接生成”监听器。
+  clearHotkeyGenerateListeners: () => ipcRenderer.removeAllListeners('hotkey-generate'),
   onAnswerStart: (cb) => sub('answer-start', cb),
   onAnswerQuestion: (cb) => sub('answer-question', cb),
   onAnswerChunk: (cb) => sub('answer-chunk', cb),
