@@ -44,3 +44,15 @@ function sub(channel, cb) {
   ipcRenderer.on(channel, h);
   return () => ipcRenderer.removeListener(channel, h);
 }
+
+// Load the optional capture-mode layer after app.js has finished its DOMContentLoaded init.
+// Injecting from preload avoids changing the upstream index.html structure.
+window.addEventListener('DOMContentLoaded', () => {
+  setTimeout(() => {
+    if (document.querySelector('script[data-question-capture-mode]')) return;
+    const script = document.createElement('script');
+    script.src = 'capture-mode.js';
+    script.dataset.questionCaptureMode = 'true';
+    document.body.appendChild(script);
+  }, 0);
+});
