@@ -216,7 +216,7 @@ async function toggleQuestionCapture() {
   else await finishQuestionCapture();
 }
 
-window.addEventListener('DOMContentLoaded', () => {
+function initCaptureMode() {
   ensureCaptureSettingsUI();
   applyCaptureSettingsUI();
 
@@ -226,4 +226,10 @@ window.addEventListener('DOMContentLoaded', () => {
   window.api.onHotkeyGenerate(() => {
     void toggleQuestionCapture();
   });
-});
+}
+
+if (document.readyState === 'loading') {
+  window.addEventListener('DOMContentLoaded', initCaptureMode);
+} else {
+  initCaptureMode();
+}
