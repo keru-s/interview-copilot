@@ -21,7 +21,9 @@ const DEFAULTS = {
   genModel: 'gemini-2.5-flash',
   // 注入到上下文的资料最大字符数
   maxContextChars: 60000,
-  // 全局热键：按下后自动识别问题并生成答案
+  // 是否采集候选人麦克风；两机模式下可关闭，只保留 interviewer 音源
+  captureCandidateMic: true,
+  // 全局热键：第一次按开始采集问题，第二次按停止并生成答案
   hotkey: 'Control+A',
   // 自动作答：监测到面试官问完一个问题就自动触发（无需按热键）
   autoAnswer: false,
