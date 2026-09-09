@@ -2,7 +2,7 @@
 
 /* global startListening:writable, openSettings:writable, saveSettings:writable */
 /* global $, state, renderHotkeyHint, toast, setStatus, handleSystemCaptureError */
-/* global getSystemStream, handleTranscript, onDgState, wireStream, clearEmptyState */
+/* global getMicStream, getSystemStream, handleTranscript, wireStream, clearEmptyState */
 /* global addDaySeparator, setLive, setListeningUI, listInputDevices, stopListening */
 /* global triggerGenerate */
 
@@ -17,14 +17,95 @@ const baseSaveSettings = saveSettings;
 let captureStartIndex = null;
 let captureStartedListening = false;
 let captureFinishing = false;
+let doubaoSeq = 0;
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+class DoubaoLive {
+  constructor(opts) {
+    this.appKey = opts.appKey;
+    this.accessKey = opts.accessKey;
+    this.resourceId = opts.resourceId;
+    this.wsUrl = opts.wsUrl;
+    this.language = opts.language || 'zh';
+    this.sampleRate = opts.sampleRate || 16000;
+    this.onTranscript = opts.onTranscript || (() => {});
+    this.onState = opts.onState || (() => {});
+    this.sessionId = `doubao_${Date.now()}_${++doubaoSeq}`;
+    this.unsub = null;
+    this.closed = false;
+  }
+
+  connect() {
+    this.unsub = window.api.onDoubaoSttEvent((evt) => {
+      if (!evt || evt.sessionId !== this.sessionId) return;
+      if (evt.type === 'transcript') {
+        this.onTranscript({ text: evt.text || '', isFinal: !!evt.isFinal });
+      } else if (evt.type === 'state') {
+        this.onState(evt.state, evt.info || '');
+      }
+    });
+
+    window.api
+      .doubaoSttStart({
+        sessionId: this.sessionId,
+        appKey: this.appKey,
+        accessKey: this.accessKey,
+        resourceId: this.resourceId,
+        wsUrl: this.wsUrl,
+        language: this.language,
+        sampleRate: this.sampleRate,
+      })
+      .catch((e) => this.onState('error', e.message));
+  }
+
+  send(buffer) {
+    if (this.closed) return;
+    window.api.doubaoSttSend({ sessionId: this.sessionId, buffer });
+  }
+
+  close() {
+    this.closed = true;
+    window.api.doubaoSttClose(this.sessionId);
+    if (this.unsub) this.unsub();
+    this.unsub = null;
+  }
+}
+
 function ensureCaptureSettingsUI() {
   const hotkeyInput = $('setHotkey');
-  if (!hotkeyInput) return;
+  const deepgramInput = $('setDeepgram');
+  if (!hotkeyInput || !deepgramInput) return;
+
+  const deepgramSetting = deepgramInput.closest('.setting');
+  if (!$('setSttProvider')) {
+    const provider = document.createElement('label');
+    provider.className = 'setting';
+    provider.innerHTML =
+      '<span>Speech-to-text provider</span>' +
+      '<select id="setSttProvider">' +
+      '<option value="deepgram">Deepgram</option>' +
+      '<option value="doubao">Doubao / Volcengine</option>' +
+      '</select>';
+    deepgramSetting.insertAdjacentElement('beforebegin', provider);
+
+    const doubao = document.createElement('div');
+    doubao.id = 'doubaoSttSettings';
+    doubao.innerHTML =
+      '<label class="setting"><span>Doubao App ID / App Key</span>' +
+      '<input type="text" id="setDoubaoAppKey" placeholder="App ID from Volcengine console" /></label>' +
+      '<label class="setting"><span>Doubao Access Token</span>' +
+      '<input type="password" id="setDoubaoAccessKey" placeholder="Access Token" /></label>' +
+      '<label class="setting"><span>Doubao Resource ID</span>' +
+      '<input type="text" id="setDoubaoResourceId" placeholder="volc.seedasr.sauc.duration" /></label>' +
+      '<p class="note">Doubao uses ASR 2.0 optimized bidirectional streaming (bigmodel_async). ' +
+      'This app currently maps it to Chinese/English interview transcription.</p>';
+    deepgramSetting.insertAdjacentElement('afterend', doubao);
+
+    $('setSttProvider').onchange = updateSttProviderUI;
+  }
 
   const hotkeyLabel = hotkeyInput.closest('.setting');
   const hotkeyTitle = hotkeyLabel && hotkeyLabel.querySelector('span');
@@ -33,24 +114,36 @@ function ensureCaptureSettingsUI() {
       'Question capture hotkey (press once to start, again to stop & answer)';
   }
 
-  if ($('setCaptureCandidateMic')) return;
+  if (!$('setCaptureCandidateMic')) {
+    const label = document.createElement('label');
+    label.className = 'setting';
+    label.innerHTML =
+      '<span>Capture candidate microphone</span>' +
+      '<select id="setCaptureCandidateMic">' +
+      '<option value="true">Enabled — transcribe interviewer + candidate</option>' +
+      '<option value="false">Disabled — interviewer audio only</option>' +
+      '</select>';
 
-  const label = document.createElement('label');
-  label.className = 'setting';
-  label.innerHTML =
-    '<span>Capture candidate microphone</span>' +
-    '<select id="setCaptureCandidateMic">' +
-    '<option value="true">Enabled — transcribe interviewer + candidate</option>' +
-    '<option value="false">Disabled — interviewer audio only</option>' +
-    '</select>';
+    const row = hotkeyLabel ? hotkeyLabel.closest('.setting-row') : null;
+    if (row) row.insertAdjacentElement('afterend', label);
+  }
+}
 
-  const row = hotkeyLabel ? hotkeyLabel.closest('.setting-row') : null;
-  if (row) row.insertAdjacentElement('afterend', label);
+function updateSttProviderUI() {
+  const provider = $('setSttProvider') ? $('setSttProvider').value : 'deepgram';
+  const deepgramSetting = $('setDeepgram') && $('setDeepgram').closest('.setting');
+  if (deepgramSetting) deepgramSetting.style.display = provider === 'deepgram' ? '' : 'none';
+  if ($('doubaoSttSettings')) {
+    $('doubaoSttSettings').style.display = provider === 'doubao' ? '' : 'none';
+  }
 }
 
 function applyCaptureSettingsUI() {
   if (!state.settings) return;
   ensureCaptureSettingsUI();
+
+  if ($('setSttProvider')) $('setSttProvider').value = state.settings.sttProvider || 'deepgram';
+  updateSttProviderUI();
 
   const enabled = state.settings.captureCandidateMic !== false;
   if ($('micSelect')) {
@@ -79,35 +172,110 @@ function applyCaptureSettingsUI() {
 openSettings = function () {
   ensureCaptureSettingsUI();
   baseOpenSettings();
+  $('setSttProvider').value = state.settings.sttProvider || 'deepgram';
+  $('setDoubaoAppKey').value = state.settings.doubaoAppKey || '';
+  $('setDoubaoAccessKey').value = state.settings.doubaoAccessKey || '';
+  $('setDoubaoResourceId').value =
+    state.settings.doubaoResourceId || 'volc.seedasr.sauc.duration';
   $('setCaptureCandidateMic').value =
     state.settings.captureCandidateMic === false ? 'false' : 'true';
+  updateSttProviderUI();
 };
 
 saveSettings = async function () {
   ensureCaptureSettingsUI();
-  const captureCandidateMic = $('setCaptureCandidateMic').value !== 'false';
+  const extra = {
+    sttProvider: $('setSttProvider').value || 'deepgram',
+    doubaoAppKey: $('setDoubaoAppKey').value.trim(),
+    doubaoAccessKey: $('setDoubaoAccessKey').value.trim(),
+    doubaoResourceId:
+      $('setDoubaoResourceId').value.trim() || 'volc.seedasr.sauc.duration',
+    captureCandidateMic: $('setCaptureCandidateMic').value !== 'false',
+  };
   await baseSaveSettings();
-  state.settings = await window.api.saveSettings({ captureCandidateMic });
+  state.settings = await window.api.saveSettings(extra);
   applyCaptureSettingsUI();
 };
 
-// Keep the original listening behavior when candidate-mic capture is enabled.
-// When disabled, only the selected Interviewer audio source is opened and sent to Deepgram.
-startListening = async function () {
-  if (!state.settings || state.settings.captureCandidateMic !== false) {
-    return baseStartListening();
+function onSttState(provider, which, s, info) {
+  if (s === 'error') {
+    setStatus('Transcription error', 'error');
+    if (info) toast(`${provider} (${which}): ${info}`, true);
+  }
+}
+
+function makeSttClient(role) {
+  const s = state.settings;
+  const provider = s.sttProvider || 'deepgram';
+  const lang = s.sttLanguage || 'en-US';
+  const onTranscript = (r) => handleTranscript(role, r);
+  const which = role === 'interviewer' ? 'interviewer' : 'candidate';
+
+  if (provider === 'doubao') {
+    return new DoubaoLive({
+      appKey: s.doubaoAppKey,
+      accessKey: s.doubaoAccessKey,
+      resourceId: s.doubaoResourceId || 'volc.seedasr.sauc.duration',
+      wsUrl:
+        s.doubaoWsUrl || 'wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async',
+      language: lang,
+      onTranscript,
+      onState: (stateName, info) => onSttState('Doubao', which, stateName, info),
+    });
   }
 
-  if (!state.settings.deepgramApiKey) {
+  return new window.DeepgramLive({
+    apiKey: s.deepgramApiKey,
+    language: lang,
+    onTranscript,
+    onState: (stateName, info) => onSttState('Deepgram', which, stateName, info),
+  });
+}
+
+function validateSttSettings() {
+  const s = state.settings || {};
+  const provider = s.sttProvider || 'deepgram';
+  if (provider === 'doubao') {
+    if (!s.doubaoAppKey || !s.doubaoAccessKey) {
+      toast('Add your Doubao App ID and Access Token in Settings first', true);
+      openSettings();
+      return false;
+    }
+    const lang = s.sttLanguage || 'en-US';
+    if (!['zh', 'en-US', 'multi'].includes(lang)) {
+      toast('Doubao bidirectional ASR in this app currently supports Chinese/English', true);
+      openSettings();
+      return false;
+    }
+    return true;
+  }
+  if (!s.deepgramApiKey) {
     toast('Add your Deepgram API key in Settings first', true);
     openSettings();
-    return;
+    return false;
   }
+  return true;
+}
+
+// Deepgram + candidate mic enabled can keep using the upstream implementation.
+// Every other case goes through this provider-neutral path so Doubao can reuse the same PCM capture.
+startListening = async function () {
+  if (!state.settings) return;
+  const provider = state.settings.sttProvider || 'deepgram';
+  const captureCandidate = state.settings.captureCandidateMic !== false;
+  if (provider === 'deepgram' && captureCandidate) return baseStartListening();
+  if (!validateSttSettings()) return;
 
   setStatus('Initializing…');
   try {
-    let sysStream = null;
     const sysVal = $('sysSelect').value;
+    const needsMicPermission = captureCandidate || sysVal !== '__loopback__';
+    if (needsMicPermission) await window.api.ensureMicPermission();
+
+    let micStream = null;
+    if (captureCandidate) micStream = await getMicStream($('micSelect').value);
+
+    let sysStream = null;
     try {
       if (sysVal === '__loopback__' && (await window.api.getScreenPermission()) === 'denied') {
         await handleSystemCaptureError(new Error('Screen Recording permission denied'), sysVal);
@@ -119,21 +287,26 @@ startListening = async function () {
       await handleSystemCaptureError(e, sysVal);
     }
 
-    if (!sysStream) {
-      throw new Error('No interviewer audio source is available. Choose an input device first.');
+    if (!micStream && !sysStream) {
+      throw new Error('No audio source is available. Choose an interviewer input device first.');
     }
 
-    const lang = state.settings.sttLanguage || 'en-US';
     state.dgMic = null;
-    state.dgSys = new window.DeepgramLive({
-      apiKey: state.settings.deepgramApiKey,
-      language: lang,
-      onTranscript: (r) => handleTranscript('interviewer', r),
-      onState: (s, info) => onDgState('sys', s, info),
-    });
-    await wireStream(sysStream, state.dgSys);
-    state.streams.push(sysStream);
-    state.dgSys.connect();
+    state.dgSys = null;
+
+    if (micStream) {
+      state.dgMic = makeSttClient('interviewee');
+      await wireStream(micStream, state.dgMic);
+      state.streams.push(micStream);
+      state.dgMic.connect();
+    }
+
+    if (sysStream) {
+      state.dgSys = makeSttClient('interviewer');
+      await wireStream(sysStream, state.dgSys);
+      state.streams.push(sysStream);
+      state.dgSys.connect();
+    }
 
     state.listening = true;
     state.sessionStart = Date.now();
@@ -142,7 +315,7 @@ startListening = async function () {
     if (!$('transcript').querySelector('.day-sep')) addDaySeparator();
     setLive(true);
     setListeningUI(true);
-    setStatus('Listening', 'live');
+    setStatus(`Listening · ${provider === 'doubao' ? 'Doubao' : 'Deepgram'}`, 'live');
     listInputDevices();
   } catch (e) {
     console.error(e);
@@ -176,8 +349,7 @@ async function finishQuestionCapture() {
   const startIndex = captureStartIndex;
   const startedListeningHere = captureStartedListening;
 
-  // Keep the audio source alive briefly so Deepgram receives the trailing silence and can
-  // finalize the last words. Stopping the track first can leave the final phrase as interim only.
+  // Keep the source alive briefly so either provider receives the trailing silence / final words.
   await sleep(500);
 
   const finalText = state.history
