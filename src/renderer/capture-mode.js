@@ -1,5 +1,11 @@
 'use strict';
 
+/* global startListening:writable, openSettings:writable, saveSettings:writable */
+/* global $, state, renderHotkeyHint, toast, setStatus, handleSystemCaptureError */
+/* global getSystemStream, handleTranscript, onDgState, wireStream, clearEmptyState */
+/* global addDaySeparator, setLive, setListeningUI, listInputDevices, stopListening */
+/* global triggerGenerate */
+
 // Optional two-computer question-capture mode layered on top of the existing app.
 // The existing hotkey remains user-configurable in Settings, but its behavior becomes:
 // first press = start capturing the interviewer; second press = stop capture and answer.
