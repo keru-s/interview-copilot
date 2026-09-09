@@ -4,7 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const store = require('../src/main/store');
 
-test('store: add / summary / buildContext / remove / clear', () => {
+test('store: add / summary / remove / clear', () => {
   store.clear();
   assert.deepEqual(store.summary(), []);
 
@@ -14,35 +14,37 @@ test('store: add / summary / buildContext / remove / clear', () => {
   assert.equal(s1[0].chars, 'I am a backend engineer.'.length);
 
   store.add('jd.txt', 'We need a forward deployed engineer.');
-  const ctx = store.buildContext(60000);
-  assert.match(ctx, /resume\.txt/);
-  assert.match(ctx, /forward deployed engineer/);
-
   const id = store.summary()[0].id;
   const after = store.remove(id);
   assert.equal(after.length, 1);
   assert.equal(after[0].name, 'jd.txt');
 
   store.clear();
-  assert.equal(store.buildContext(60000), '');
+  assert.deepEqual(store.summary(), []);
 });
 
-test('store: update changes a doc in place', () => {
+test('store: update changes a doc in place and invalidates retrieval index', () => {
   store.clear();
-  store.add('a.txt', 'old');
+  store.add('a.txt', 'old irrelevant text');
   const id = store.summary()[0].id;
-  const after = store.update(id, { name: 'b.txt', text: 'new longer text' });
+  store.warmIndex();
+
+  const after = store.update(id, {
+    name: 'b.txt',
+    text: 'new vLLM inference optimization content',
+  });
   assert.equal(after[0].name, 'b.txt');
-  assert.equal(after[0].chars, 'new longer text'.length);
-  assert.match(store.buildContext(60000), /new longer text/);
+  assert.equal(after[0].chars, 'new vLLM inference optimization content'.length);
+
+  const r = store.search('vLLM inference optimization');
+  assert.equal(r.matches[0].name, 'b.txt');
+  assert.match(r.context, /vLLM/);
   store.clear();
 });
 
-test('store: buildContext truncates when over the limit', () => {
+test('store: legacy buildContext no longer assembles the full knowledge base', () => {
   store.clear();
   store.add('big.txt', 'x'.repeat(1000));
-  const ctx = store.buildContext(200);
-  assert.ok(ctx.length <= 200 + 40);
-  assert.match(ctx, /已截断/);
+  assert.equal(store.buildContext(60000), '');
   store.clear();
 });
