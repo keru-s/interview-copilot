@@ -5,7 +5,15 @@ const path = require('path');
 const { app } = require('electron');
 
 const DEFAULTS = {
+  // 语音转文字 Provider：deepgram / doubao
+  sttProvider: 'deepgram',
   deepgramApiKey: process.env.DEEPGRAM_API_KEY || '',
+  // 豆包语音 / 火山引擎大模型流式 ASR 2.0
+  doubaoAppKey: process.env.DOUBAO_ASR_APP_KEY || '',
+  doubaoAccessKey: process.env.DOUBAO_ASR_ACCESS_KEY || '',
+  doubaoResourceId: process.env.DOUBAO_ASR_RESOURCE_ID || 'volc.seedasr.sauc.duration',
+  doubaoWsUrl:
+    process.env.DOUBAO_ASR_WS_URL || 'wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async',
   // 答案 Provider： deepseek / gemini / openai / ollama
   provider: 'gemini',
   geminiApiKey: process.env.GEMINI_API_KEY || '',
