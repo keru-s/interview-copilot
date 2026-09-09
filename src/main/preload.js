@@ -110,14 +110,20 @@ function sub(channel, cb) {
   return () => ipcRenderer.removeListener(channel, h);
 }
 
-// Load the optional capture-mode layer after app.js has finished its DOMContentLoaded init.
-// Injecting from preload avoids changing the upstream index.html structure.
+// Load provider extensions after app.js has registered its normal DOMContentLoaded init.
 window.addEventListener('DOMContentLoaded', () => {
   setTimeout(() => {
-    if (document.querySelector('script[data-question-capture-mode]')) return;
-    const script = document.createElement('script');
-    script.src = 'capture-mode.js';
-    script.dataset.questionCaptureMode = 'true';
-    document.body.appendChild(script);
+    if (!document.querySelector('script[data-question-capture-mode]')) {
+      const capture = document.createElement('script');
+      capture.src = 'capture-mode.js';
+      capture.dataset.questionCaptureMode = 'true';
+      document.body.appendChild(capture);
+    }
+    if (!document.querySelector('script[data-provider-init]')) {
+      const initFix = document.createElement('script');
+      initFix.src = 'provider-init.js';
+      initFix.dataset.providerInit = 'true';
+      document.body.appendChild(initFix);
+    }
   }, 0);
 });
