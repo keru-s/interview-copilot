@@ -83,12 +83,23 @@ const ZH_STOP = new Set([
 
 // 高频面试技术词别名。只扩展 query，不改原文；例如问 SFT，也能命中“监督微调”。
 const ALIAS_GROUPS = [
-  ['sft', 'supervised fine tuning', 'supervised fine-tuning', '监督微调', '有监督微调'],
-  ['rag', 'retrieval augmented generation', 'retrieval-augmented generation', '检索增强生成'],
+  [
+    'sft',
+    'supervised fine tuning',
+    'supervised fine-tuning',
+    '监督微调',
+    '有监督微调',
+  ],
+  [
+    'rag',
+    'retrieval augmented generation',
+    'retrieval-augmented generation',
+    '检索增强生成',
+  ],
   ['llm', 'large language model', '大语言模型'],
   ['lora', 'low rank adaptation', 'low-rank adaptation', '低秩适配'],
   ['rlhf', 'reinforcement learning from human feedback', '人类反馈强化学习'],
-  ['websocket', 'web socket', 'ws'],
+  ['websocket', 'web socket'],
   ['sse', 'server sent events', 'server-sent events'],
   ['bm25', 'okapi bm25'],
   ['agent', 'ai agent', '智能体'],
@@ -138,7 +149,6 @@ function add(name, text) {
   return summary();
 }
 
-// 更新某条资料的名称/内容（删了重加也行，这个用于原地更新）
 function update(id, { name, text } = {}) {
   ensureLoaded();
   const d = docs.find((x) => x.id === id);
@@ -181,11 +191,24 @@ function normalize(s) {
     .toLowerCase();
 }
 
+function escapeRegex(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function containsAlias(raw, alias) {
+  const a = normalize(alias);
+  if (/\p{Script=Han}/u.test(a)) return raw.includes(a);
+  if (/^[a-z0-9]+$/.test(a)) {
+    return new RegExp(`(^|[^a-z0-9])${escapeRegex(a)}([^a-z0-9]|$)`).test(raw);
+  }
+  return raw.includes(a);
+}
+
 function expandAliases(query) {
   const raw = normalize(query);
   const extra = [];
   for (const group of ALIAS_GROUPS) {
-    if (group.some((alias) => raw.includes(normalize(alias)))) extra.push(...group);
+    if (group.some((alias) => containsAlias(raw, alias))) extra.push(...group);
   }
   return extra.length ? `${query}\n${extra.join(' ')}` : String(query || '');
 }
@@ -201,7 +224,6 @@ function tokenize(text) {
   }
 
   // 中文不引入分词依赖：保留短词本身，并补 2-gram / 3-gram。
-  // 对几十到几千个面试资料 chunk 足够快，也能覆盖“监督微调/SFT”这类技术表达。
   const hanRuns = s.match(/\p{Script=Han}+/gu) || [];
   for (const run of hanRuns) {
     if (run.length >= 2 && run.length <= 8 && !ZH_STOP.has(run)) out.push(run);
@@ -265,12 +287,6 @@ function warmIndex() {
   };
 }
 
-/**
- * BM25 检索相关资料片段。
- * - topK: 最多返回多少个 chunk
- * - minScore: 低于该分数视为没有可靠资料命中，不向 Prompt 注入 KB
- * - maxChars: 最终注入字符上限，远小于旧版“全量 60000 字符”路径
- */
 function search(query, { topK = 5, minScore = 0.75, maxChars = 10000 } = {}) {
   ensureLoaded();
   const q = String(query || '').trim();
@@ -278,7 +294,9 @@ function search(query, { topK = 5, minScore = 0.75, maxChars = 10000 } = {}) {
 
   const started = Date.now();
   const idx = indexCache || buildIndex();
-  if (!idx.chunks.length) return { context: '', matches: [], tookMs: Date.now() - started };
+  if (!idx.chunks.length) {
+    return { context: '', matches: [], tookMs: Date.now() - started };
+  }
 
   const queryTokens = tokenize(expandAliases(q));
   const qtf = termFrequency(queryTokens);
@@ -298,7 +316,8 @@ function search(query, { topK = 5, minScore = 0.75, maxChars = 10000 } = {}) {
       matchedTerms += 1;
       const n = idx.df.get(term) || 0;
       const idf = Math.log(1 + (N - n + 0.5) / (n + 0.5));
-      const denom = tf + k1 * (1 - b + b * (chunk.length / Math.max(1, idx.avgdl)));
+      const lengthNorm = chunk.length / Math.max(1, idx.avgdl);
+      const denom = tf + k1 * (1 - b + b * lengthNorm);
       const queryWeight = 1 + Math.log(Math.max(1, queryFreq));
       score += idf * ((tf * (k1 + 1)) / denom) * queryWeight;
     }
@@ -323,7 +342,10 @@ function search(query, { topK = 5, minScore = 0.75, maxChars = 10000 } = {}) {
     if (used && used + block.length + 10 > maxChars) break;
     const remain = maxChars - used;
     if (remain <= 80) break;
-    const finalBlock = block.length <= remain ? block : `${block.slice(0, Math.max(0, remain - 12))}\n[片段截断]`;
+    const finalBlock =
+      block.length <= remain
+        ? block
+        : `${block.slice(0, Math.max(0, remain - 12))}\n[片段截断]`;
     blocks.push(finalBlock);
     used += finalBlock.length + 10;
     matches.push({
@@ -343,21 +365,12 @@ function search(query, { topK = 5, minScore = 0.75, maxChars = 10000 } = {}) {
   };
 }
 
-/**
- * 旧接口保留给兼容/单测；主回答链路不再调用它。
- */
-function buildContext(maxChars = 60000) {
-  ensureLoaded();
-  if (docs.length === 0) return '';
-  const blocks = docs.map((d) => `### 资料：${d.name}\n${d.text}`);
-  let joined = blocks.join('\n\n---\n\n');
-  if (joined.length > maxChars) {
-    joined = joined.slice(0, maxChars) + '\n\n[资料过长，已截断]';
-  }
-  return joined;
+// main.js 仍调用这个旧接口。真正的 Knowledge Base 注入现在由 prompt.js 的 BM25 检索完成，
+// 因此这里不再构造“全量资料字符串”，避免每个通用问题都白做一次全库拼接。
+function buildContext() {
+  return '';
 }
 
-// 仅供单测：重置内存状态
 function _reset() {
   docs = [];
   seq = 0;
