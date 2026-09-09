@@ -69,10 +69,12 @@ class DoubaoLive {
   }
 
   close() {
+    if (this.closed) return;
     this.closed = true;
     window.api.doubaoSttClose(this.sessionId);
-    // Allow the provider's short finalization window to finish before dropping the callback.
-    if (this.unsub) setTimeout(() => this.unsub && this.unsub(), 900);
+    // nostream returns its useful result after the final audio packet, so keep the callback
+    // alive long enough for the provider-side finalization window.
+    if (this.unsub) setTimeout(() => this.unsub && this.unsub(), 1800);
   }
 }
 
@@ -105,7 +107,7 @@ function ensureCaptureSettingsUI() {
       '<input type="password" id="setDoubaoAccessKey" placeholder="Access Token" /></label>' +
       '<label class="setting"><span>Doubao Resource ID</span>' +
       '<input type="text" id="setDoubaoResourceId" placeholder="volc.seedasr.sauc.duration" /></label>' +
-      '<p class="note">Uses ASR 2.0 optimized bidirectional streaming (bigmodel_async). This app currently maps it to Chinese/English interview transcription.</p>';
+      '<p class="note">Uses ASR 2.0 streaming-input mode (bigmodel_nostream): audio is uploaded continuously and the complete result is preferred after the final packet.</p>';
     deepgramSetting.insertAdjacentElement('afterend', doubao);
 
     $('setSttProvider').onchange = updateSttProviderUI;
@@ -224,7 +226,7 @@ function makeSttClient(role) {
       accessKey: s.doubaoAccessKey,
       resourceId: s.doubaoResourceId || 'volc.seedasr.sauc.duration',
       wsUrl:
-        s.doubaoWsUrl || 'wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async',
+        s.doubaoWsUrl || 'wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_nostream',
       language: lang,
       onTranscript,
       onState: (stateName, info) => onSttState('Doubao', which, stateName, info),
@@ -252,7 +254,7 @@ function validateSttSettings() {
     }
     const lang = s.sttLanguage || 'en-US';
     if (!['zh', 'en-US', 'multi'].includes(lang)) {
-      toast('Doubao bidirectional ASR in this app currently supports Chinese/English', true);
+      toast('Doubao ASR in this app currently supports Chinese/English', true);
       openSettings();
       return false;
     }
@@ -351,15 +353,31 @@ async function beginQuestionCapture() {
   toast('Question capture started — press the hotkey again when the interviewer finishes.');
 }
 
+function hasCapturedInterviewerFinal(startIndex) {
+  return state.history.slice(startIndex).some((h) => h.role === 'interviewer' && h.text.trim());
+}
+
 async function finishQuestionCapture() {
   if (captureStartIndex === null || captureFinishing) return;
   captureFinishing = true;
 
   const startIndex = captureStartIndex;
   const startedListeningHere = captureStartedListening;
+  const isDoubao = (state.settings.sttProvider || 'deepgram') === 'doubao';
 
-  // Keep the source alive briefly so either provider receives the trailing silence / final words.
-  await sleep(500);
+  if (isDoubao && startedListeningHere && state.dgSys) {
+    // nostream emits the useful transcript only after the negative/final audio packet.
+    // Give the AudioWorklet one short window to flush the tail, then finalize ASR first.
+    await sleep(180);
+    state.dgSys.close();
+    const deadline = Date.now() + 1400;
+    while (!hasCapturedInterviewerFinal(startIndex) && Date.now() < deadline) {
+      await sleep(50);
+    }
+  } else {
+    // Deepgram can finalize from trailing silence before the stream is closed.
+    await sleep(500);
+  }
 
   const finalText = state.history
     .slice(startIndex)
