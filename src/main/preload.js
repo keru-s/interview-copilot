@@ -24,6 +24,7 @@ async function startDoubaoSession(options = {}) {
   if (previous) previous.close();
 
   const session = new DoubaoAsrSession({
+    apiKey: options.apiKey,
     appKey: options.appKey,
     accessKey: options.accessKey,
     resourceId: options.resourceId,
