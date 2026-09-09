@@ -9,13 +9,14 @@ const DEFAULTS = {
   sttProvider: 'deepgram',
   deepgramApiKey: process.env.DEEPGRAM_API_KEY || '',
   // 豆包语音 / 火山引擎大模型流式 ASR 2.0。
+  // 默认使用 bigmodel_nostream：持续流式上传音频，结束后返回完整高质量结果。
   // 新控制台优先使用 API Key；旧应用仍可使用 App ID + Access Token。
   doubaoApiKey: process.env.DOUBAO_ASR_API_KEY || '',
   doubaoAppKey: process.env.DOUBAO_ASR_APP_KEY || '',
   doubaoAccessKey: process.env.DOUBAO_ASR_ACCESS_KEY || '',
   doubaoResourceId: process.env.DOUBAO_ASR_RESOURCE_ID || 'volc.seedasr.sauc.duration',
   doubaoWsUrl:
-    process.env.DOUBAO_ASR_WS_URL || 'wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async',
+    process.env.DOUBAO_ASR_WS_URL || 'wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_nostream',
   // 答案 Provider： deepseek / gemini / openai / ollama
   provider: 'gemini',
   geminiApiKey: process.env.GEMINI_API_KEY || '',
@@ -54,7 +55,16 @@ function settingsPath() {
 function load() {
   try {
     const raw = fs.readFileSync(settingsPath(), 'utf8');
-    return { ...DEFAULTS, ...JSON.parse(raw) };
+    const saved = JSON.parse(raw);
+    const merged = { ...DEFAULTS, ...saved };
+    // Migrate the previous feature-branch default so existing local settings also switch to nostream.
+    if (
+      !process.env.DOUBAO_ASR_WS_URL &&
+      saved.doubaoWsUrl === 'wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async'
+    ) {
+      merged.doubaoWsUrl = 'wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_nostream';
+    }
+    return merged;
   } catch (_e) {
     return { ...DEFAULTS };
   }
