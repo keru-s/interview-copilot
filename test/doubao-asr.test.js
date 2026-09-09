@@ -50,6 +50,27 @@ test('Doubao server response parser decodes gzipped transcript JSON', () => {
   assert.equal(parsed.payload.result.utterances[0].definite, true);
 });
 
+test('Doubao auth prefers modern API Key and supports legacy app credentials', () => {
+  const modern = _protocol.buildAuthHeaders({
+    apiKey: 'api-key',
+    resourceId: 'volc.seedasr.sauc.duration',
+  });
+  assert.equal(modern['X-Api-Key'], 'api-key');
+  assert.equal(modern['X-Api-Resource-Id'], 'volc.seedasr.sauc.duration');
+  assert.equal(modern['X-Api-Sequence'], '-1');
+  assert.ok(modern['X-Api-Request-Id']);
+  assert.equal(modern['X-Api-App-Key'], undefined);
+
+  const legacy = _protocol.buildAuthHeaders({
+    appKey: 'app-id',
+    accessKey: 'access-token',
+    resourceId: 'volc.seedasr.sauc.duration',
+  });
+  assert.equal(legacy['X-Api-App-Key'], 'app-id');
+  assert.equal(legacy['X-Api-Access-Key'], 'access-token');
+  assert.equal(legacy['X-Api-Key'], undefined);
+});
+
 test('WebSocket client frame is masked as required by RFC6455', () => {
   const frame = _protocol.encodeClientWsFrame(Buffer.from('abc'));
   assert.equal(frame[0], 0x82);
