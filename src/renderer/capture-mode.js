@@ -29,7 +29,8 @@ function ensureCaptureSettingsUI() {
   const hotkeyLabel = hotkeyInput.closest('.setting');
   const hotkeyTitle = hotkeyLabel && hotkeyLabel.querySelector('span');
   if (hotkeyTitle) {
-    hotkeyTitle.textContent = 'Question capture hotkey (press once to start, again to stop & answer)';
+    hotkeyTitle.textContent =
+      'Question capture hotkey (press once to start, again to stop & answer)';
   }
 
   if ($('setCaptureCandidateMic')) return;
@@ -78,7 +79,8 @@ function applyCaptureSettingsUI() {
 openSettings = function () {
   ensureCaptureSettingsUI();
   baseOpenSettings();
-  $('setCaptureCandidateMic').value = state.settings.captureCandidateMic === false ? 'false' : 'true';
+  $('setCaptureCandidateMic').value =
+    state.settings.captureCandidateMic === false ? 'false' : 'true';
 };
 
 saveSettings = async function () {
@@ -174,18 +176,8 @@ async function finishQuestionCapture() {
   const startIndex = captureStartIndex;
   const startedListeningHere = captureStartedListening;
 
-  // If this hotkey started the listening session, stop the source first and leave the
-  // Deepgram socket alive briefly so endpointing can emit the final transcript.
-  if (startedListeningHere) {
-    state.streams.forEach((stream) => {
-      stream.getTracks().forEach((track) => {
-        try {
-          track.stop();
-        } catch (_e) {}
-      });
-    });
-  }
-
+  // Keep the audio source alive briefly so Deepgram receives the trailing silence and can
+  // finalize the last words. Stopping the track first can leave the final phrase as interim only.
   await sleep(500);
 
   const finalText = state.history
@@ -195,7 +187,8 @@ async function finishQuestionCapture() {
     .join(' ')
     .trim();
   const interimText =
-    (state.interim.interviewer && state.interim.interviewer.querySelector('.bubble')?.textContent) || '';
+    (state.interim.interviewer && state.interim.interviewer.querySelector('.bubble')?.textContent) ||
+    '';
   const question = finalText || interimText.trim();
 
   captureStartIndex = null;
@@ -232,6 +225,9 @@ function initCaptureMode() {
   window.api.onHotkeyGenerate(() => {
     void toggleQuestionCapture();
   });
+
+  // preload may inject this layer while app.js is still awaiting settings IPC.
+  setTimeout(applyCaptureSettingsUI, 150);
 }
 
 if (document.readyState === 'loading') {
