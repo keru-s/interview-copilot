@@ -1,5 +1,7 @@
 'use strict';
 
+/* global window, document */
+
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('api', {
