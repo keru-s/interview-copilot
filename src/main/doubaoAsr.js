@@ -92,7 +92,6 @@ function parseServerFrame(frame) {
     offset += 4;
   }
 
-  // Some Seed events carry an extra event field (flag bit 0x4).
   if (flags & 0b0100) {
     if (offset + 4 > msg.length) throw new Error('Doubao frame event is truncated');
     offset += 4;
@@ -209,46 +208,57 @@ class HeaderWebSocket extends EventEmitter {
       });
 
       socket.on('data', (chunk) => {
-        if (!this.open) {
-          this.handshakeBuffer = Buffer.concat([this.handshakeBuffer, chunk]);
-          const end = this.handshakeBuffer.indexOf('\r\n\r\n');
-          if (end < 0) return;
-          const headerText = this.handshakeBuffer.subarray(0, end).toString('utf8');
-          const rest = this.handshakeBuffer.subarray(end + 4);
-          this.handshakeBuffer = Buffer.alloc(0);
-          const lines = headerText.split('\r\n');
-          const status = lines.shift() || '';
-          const responseHeaders = {};
-          for (const line of lines) {
-            const idx = line.indexOf(':');
-            if (idx > 0) responseHeaders[line.slice(0, idx).trim().toLowerCase()] = line.slice(idx + 1).trim();
-          }
-          if (!/^HTTP\/1\.[01] 101\b/.test(status)) {
-            fail(new Error(`Doubao WebSocket handshake failed: ${status}`));
-            socket.destroy();
+        try {
+          if (!this.open) {
+            this.handshakeBuffer = Buffer.concat([this.handshakeBuffer, chunk]);
+            const end = this.handshakeBuffer.indexOf('\r\n\r\n');
+            if (end < 0) return;
+            const headerText = this.handshakeBuffer.subarray(0, end).toString('utf8');
+            const rest = this.handshakeBuffer.subarray(end + 4);
+            this.handshakeBuffer = Buffer.alloc(0);
+            const lines = headerText.split('\r\n');
+            const status = lines.shift() || '';
+            const responseHeaders = {};
+            for (const line of lines) {
+              const idx = line.indexOf(':');
+              if (idx > 0) {
+                responseHeaders[line.slice(0, idx).trim().toLowerCase()] = line
+                  .slice(idx + 1)
+                  .trim();
+              }
+            }
+            if (!/^HTTP\/1\.[01] 101\b/.test(status)) {
+              fail(new Error(`Doubao WebSocket handshake failed: ${status}`));
+              socket.destroy();
+              return;
+            }
+            if ((responseHeaders['sec-websocket-accept'] || '') !== expectedAccept) {
+              fail(new Error('Doubao WebSocket handshake returned an invalid accept key'));
+              socket.destroy();
+              return;
+            }
+            this.open = true;
+            if (!settled) {
+              settled = true;
+              resolve();
+            }
+            this.emit('open');
+            if (rest.length) this._consume(rest);
             return;
           }
-          if ((responseHeaders['sec-websocket-accept'] || '') !== expectedAccept) {
-            fail(new Error('Doubao WebSocket handshake returned an invalid accept key'));
-            socket.destroy();
-            return;
-          }
-          this.open = true;
-          if (!settled) {
-            settled = true;
-            resolve();
-          }
-          this.emit('open');
-          if (rest.length) this._consume(rest);
-          return;
+          this._consume(chunk);
+        } catch (e) {
+          fail(e);
+          socket.destroy();
         }
-        this._consume(chunk);
       });
 
       socket.on('error', fail);
       socket.on('close', () => {
         this.open = false;
-        if (!this.closed && !settled) fail(new Error('Doubao WebSocket closed during handshake'));
+        if (!this.closed && !settled) {
+          fail(new Error('Doubao WebSocket closed during handshake'));
+        }
         this.emit('close');
       });
     });
@@ -271,7 +281,9 @@ class HeaderWebSocket extends EventEmitter {
       } else if (len === 127) {
         if (this.buffer.length < 10) return;
         const big = this.buffer.readBigUInt64BE(2);
-        if (big > BigInt(Number.MAX_SAFE_INTEGER)) throw new Error('WebSocket frame is too large');
+        if (big > BigInt(Number.MAX_SAFE_INTEGER)) {
+          throw new Error('WebSocket frame is too large');
+        }
         len = Number(big);
         offset = 10;
       }
@@ -282,14 +294,16 @@ class HeaderWebSocket extends EventEmitter {
         offset += 4;
       }
       if (this.buffer.length < offset + len) return;
-      let payload = Buffer.from(this.buffer.subarray(offset, offset + len));
+      const payload = Buffer.from(this.buffer.subarray(offset, offset + len));
       this.buffer = this.buffer.subarray(offset + len);
       if (mask) {
         for (let i = 0; i < payload.length; i += 1) payload[i] ^= mask[i % 4];
       }
 
       if (opcode === 0x8) {
-        if (this.socket && !this.socket.destroyed) this.socket.end(encodeClientWsFrame(payload, 0x8));
+        if (this.socket && !this.socket.destroyed) {
+          this.socket.end(encodeClientWsFrame(payload, 0x8));
+        }
         this.closed = true;
         continue;
       }
@@ -347,12 +361,30 @@ function mapLanguage(language) {
   return language;
 }
 
+function buildAuthHeaders(options) {
+  const requestId = randomUUID();
+  const common = {
+    'X-Api-Resource-Id': options.resourceId || 'volc.seedasr.sauc.duration',
+    'X-Api-Request-Id': requestId,
+    'X-Api-Connect-Id': randomUUID(),
+    'X-Api-Sequence': '-1',
+  };
+  if (options.apiKey) return { ...common, 'X-Api-Key': options.apiKey };
+  return {
+    ...common,
+    'X-Api-App-Key': options.appKey,
+    'X-Api-Access-Key': options.accessKey,
+  };
+}
+
 class DoubaoAsrSession {
   constructor(options = {}) {
+    this.apiKey = options.apiKey || '';
     this.appKey = options.appKey || '';
     this.accessKey = options.accessKey || '';
     this.resourceId = options.resourceId || 'volc.seedasr.sauc.duration';
-    this.wsUrl = options.wsUrl || 'wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async';
+    this.wsUrl =
+      options.wsUrl || 'wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async';
     this.language = mapLanguage(options.language || 'zh');
     this.sampleRate = options.sampleRate || 16000;
     this.onTranscript = options.onTranscript || (() => {});
@@ -360,7 +392,7 @@ class DoubaoAsrSession {
     this.ws = null;
     this.seq = 1;
     this.pending = Buffer.alloc(0);
-    this.segmentBytes = Math.round(this.sampleRate * 2 * 0.2); // ~200 ms, 16-bit mono
+    this.segmentBytes = Math.round(this.sampleRate * 2 * 0.2);
     this.queue = [];
     this.connected = false;
     this.closing = false;
@@ -369,17 +401,23 @@ class DoubaoAsrSession {
   }
 
   async connect() {
-    if (!this.appKey || !this.accessKey) throw new Error('Doubao App ID / Access Token is missing');
+    const hasLegacy = this.appKey && this.accessKey;
+    if (!this.apiKey && !hasLegacy) {
+      throw new Error('Doubao API Key or App ID + Access Token is missing');
+    }
     if (!['zh-CN', 'en-US'].includes(this.language)) {
       throw new Error('Doubao bidirectional ASR currently supports Chinese/English in this app');
     }
 
-    const ws = new HeaderWebSocket(this.wsUrl, {
-      'X-Api-App-Key': this.appKey,
-      'X-Api-Access-Key': this.accessKey,
-      'X-Api-Resource-Id': this.resourceId,
-      'X-Api-Connect-Id': randomUUID(),
-    });
+    const ws = new HeaderWebSocket(
+      this.wsUrl,
+      buildAuthHeaders({
+        apiKey: this.apiKey,
+        appKey: this.appKey,
+        accessKey: this.accessKey,
+        resourceId: this.resourceId,
+      }),
+    );
     this.ws = ws;
     ws.on('message', (data) => this._handleMessage(data));
     ws.on('error', (e) => this.onState('error', e.message));
@@ -439,7 +477,8 @@ class DoubaoAsrSession {
       return;
     }
     if (parsed.messageType === MSG_TYPE.SERVER_ERROR_RESPONSE) {
-      this.onState('error', `Doubao ASR error ${parsed.errorCode}: ${parsed.error || ''}`.trim());
+      const detail = parsed.error || '';
+      this.onState('error', `Doubao ASR error ${parsed.errorCode}: ${detail}`.trim());
       return;
     }
     const result = parsed.payload && parsed.payload.result;
@@ -486,5 +525,6 @@ module.exports = {
     buildAudioOnlyRequest,
     parseServerFrame,
     encodeClientWsFrame,
+    buildAuthHeaders,
   },
 };
