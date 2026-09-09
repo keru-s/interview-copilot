@@ -8,7 +8,9 @@ const DEFAULTS = {
   // 语音转文字 Provider：deepgram / doubao
   sttProvider: 'deepgram',
   deepgramApiKey: process.env.DEEPGRAM_API_KEY || '',
-  // 豆包语音 / 火山引擎大模型流式 ASR 2.0
+  // 豆包语音 / 火山引擎大模型流式 ASR 2.0。
+  // 新控制台优先使用 API Key；旧应用仍可使用 App ID + Access Token。
+  doubaoApiKey: process.env.DOUBAO_ASR_API_KEY || '',
   doubaoAppKey: process.env.DOUBAO_ASR_APP_KEY || '',
   doubaoAccessKey: process.env.DOUBAO_ASR_ACCESS_KEY || '',
   doubaoResourceId: process.env.DOUBAO_ASR_RESOURCE_ID || 'volc.seedasr.sauc.duration',
