@@ -25,6 +25,7 @@ function sleep(ms) {
 
 class DoubaoLive {
   constructor(opts) {
+    this.apiKey = opts.apiKey;
     this.appKey = opts.appKey;
     this.accessKey = opts.accessKey;
     this.resourceId = opts.resourceId;
@@ -51,6 +52,7 @@ class DoubaoLive {
     window.api
       .doubaoSttStart({
         sessionId: this.sessionId,
+        apiKey: this.apiKey,
         appKey: this.appKey,
         accessKey: this.accessKey,
         resourceId: this.resourceId,
@@ -69,8 +71,8 @@ class DoubaoLive {
   close() {
     this.closed = true;
     window.api.doubaoSttClose(this.sessionId);
-    if (this.unsub) this.unsub();
-    this.unsub = null;
+    // Allow the provider's short finalization window to finish before dropping the callback.
+    if (this.unsub) setTimeout(() => this.unsub && this.unsub(), 900);
   }
 }
 
@@ -94,14 +96,16 @@ function ensureCaptureSettingsUI() {
     const doubao = document.createElement('div');
     doubao.id = 'doubaoSttSettings';
     doubao.innerHTML =
-      '<label class="setting"><span>Doubao App ID / App Key</span>' +
+      '<label class="setting"><span>Doubao API Key (new console, preferred)</span>' +
+      '<input type="password" id="setDoubaoApiKey" placeholder="API Key" /></label>' +
+      '<p class="note">If your account uses the legacy application credentials instead, leave API Key empty and fill both fields below.</p>' +
+      '<label class="setting"><span>Doubao App ID / App Key (legacy)</span>' +
       '<input type="text" id="setDoubaoAppKey" placeholder="App ID from Volcengine console" /></label>' +
-      '<label class="setting"><span>Doubao Access Token</span>' +
+      '<label class="setting"><span>Doubao Access Token (legacy)</span>' +
       '<input type="password" id="setDoubaoAccessKey" placeholder="Access Token" /></label>' +
       '<label class="setting"><span>Doubao Resource ID</span>' +
       '<input type="text" id="setDoubaoResourceId" placeholder="volc.seedasr.sauc.duration" /></label>' +
-      '<p class="note">Doubao uses ASR 2.0 optimized bidirectional streaming (bigmodel_async). ' +
-      'This app currently maps it to Chinese/English interview transcription.</p>';
+      '<p class="note">Uses ASR 2.0 optimized bidirectional streaming (bigmodel_async). This app currently maps it to Chinese/English interview transcription.</p>';
     deepgramSetting.insertAdjacentElement('afterend', doubao);
 
     $('setSttProvider').onchange = updateSttProviderUI;
@@ -173,6 +177,7 @@ openSettings = function () {
   ensureCaptureSettingsUI();
   baseOpenSettings();
   $('setSttProvider').value = state.settings.sttProvider || 'deepgram';
+  $('setDoubaoApiKey').value = state.settings.doubaoApiKey || '';
   $('setDoubaoAppKey').value = state.settings.doubaoAppKey || '';
   $('setDoubaoAccessKey').value = state.settings.doubaoAccessKey || '';
   $('setDoubaoResourceId').value =
@@ -186,6 +191,7 @@ saveSettings = async function () {
   ensureCaptureSettingsUI();
   const extra = {
     sttProvider: $('setSttProvider').value || 'deepgram',
+    doubaoApiKey: $('setDoubaoApiKey').value.trim(),
     doubaoAppKey: $('setDoubaoAppKey').value.trim(),
     doubaoAccessKey: $('setDoubaoAccessKey').value.trim(),
     doubaoResourceId:
@@ -213,6 +219,7 @@ function makeSttClient(role) {
 
   if (provider === 'doubao') {
     return new DoubaoLive({
+      apiKey: s.doubaoApiKey,
       appKey: s.doubaoAppKey,
       accessKey: s.doubaoAccessKey,
       resourceId: s.doubaoResourceId || 'volc.seedasr.sauc.duration',
@@ -236,8 +243,10 @@ function validateSttSettings() {
   const s = state.settings || {};
   const provider = s.sttProvider || 'deepgram';
   if (provider === 'doubao') {
-    if (!s.doubaoAppKey || !s.doubaoAccessKey) {
-      toast('Add your Doubao App ID and Access Token in Settings first', true);
+    const hasModern = !!s.doubaoApiKey;
+    const hasLegacy = !!s.doubaoAppKey && !!s.doubaoAccessKey;
+    if (!hasModern && !hasLegacy) {
+      toast('Add a Doubao API Key, or App ID + Access Token, in Settings first', true);
       openSettings();
       return false;
     }
