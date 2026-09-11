@@ -274,8 +274,10 @@ async function listInputDevices() {
 
     const micSel = $('micSelect');
     const sysSel = $('sysSelect');
-    const prevMic = micSel.value;
-    const prevSys = sysSel.value;
+    // 当前选择优先（设备插拔刷新时保持），否则回落到上次保存的选择。
+    const prevMic = micSel.value || (state.settings && state.settings.micDeviceId) || '';
+    const prevSys =
+      sysSel.value || (state.settings && state.settings.sysDeviceId) || '__loopback__';
 
     micSel.innerHTML = '';
     inputs.forEach((d, i) => {
@@ -284,7 +286,8 @@ async function listInputDevices() {
       opt.textContent = d.label || `麦克风 ${i + 1}`;
       micSel.appendChild(opt);
     });
-    if (prevMic) micSel.value = prevMic;
+    // 设备已拔出时保持默认（第一项），不设置成不存在的值。
+    if (prevMic && [...micSel.options].some((o) => o.value === prevMic)) micSel.value = prevMic;
 
     // 系统音源：保留 loopback 选项 + 追加可选输入设备（如 BlackHole）
     sysSel.innerHTML = '<option value="__loopback__">系统声音（回环）</option>';
@@ -294,7 +297,7 @@ async function listInputDevices() {
       opt.textContent = d.label || `输入设备 ${i + 1}`;
       sysSel.appendChild(opt);
     });
-    if (prevSys) sysSel.value = prevSys;
+    if (prevSys && [...sysSel.options].some((o) => o.value === prevSys)) sysSel.value = prevSys;
   } catch (e) {
     console.error(e);
   }
@@ -739,6 +742,13 @@ function bindEvents() {
   $('closeSettings').onclick = () => $('settingsModal').classList.add('hidden');
   $('saveSettings').onclick = saveSettings;
   $('setProvider').onchange = updateLlmProviderUI;
+  // 记住音频设备选择，下次启动自动恢复（双机/外置麦克风场景不用每次重选）。
+  $('micSelect').onchange = async (e) => {
+    state.settings = await window.api.saveSettings({ micDeviceId: e.target.value });
+  };
+  $('sysSelect').onchange = async (e) => {
+    state.settings = await window.api.saveSettings({ sysDeviceId: e.target.value });
+  };
   document.querySelectorAll('[data-refresh-models]').forEach((btn) => {
     btn.onclick = () => refreshModelList(btn.dataset.refreshModels);
   });

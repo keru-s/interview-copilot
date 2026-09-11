@@ -44,6 +44,9 @@ const DEFAULTS = {
   maxContextChars: 60000,
   // 是否采集候选人麦克风；两机模式下可关闭，只保留 interviewer 音源
   captureCandidateMic: true,
+  // 记住音频设备选择（deviceId 在本机是稳定的；设备不在时回落到默认）
+  micDeviceId: '',
+  sysDeviceId: '__loopback__',
   // 全局热键：第一次按开始采集问题，第二次按停止并生成答案
   hotkey: 'Control+A',
   // 自动作答：监测到面试官问完一个问题就自动触发（无需按热键）
