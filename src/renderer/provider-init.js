@@ -16,7 +16,9 @@ function llmReady(settings) {
   const provider = settings.provider || 'gemini';
   if (provider === 'deepseek') return !!settings.deepseekApiKey;
   if (provider === 'openai') return !!settings.openaiApiKey;
+  if (provider === 'kimi') return !!settings.kimiApiKey;
   if (provider === 'ollama') return true;
+  if (provider === 'custom') return !!(settings.customBaseURL && settings.customModel);
   return !!settings.geminiApiKey;
 }
 
@@ -30,9 +32,9 @@ async function fixInitialProviderReadiness() {
     if (!status || !modal) return;
 
     // Never close a Settings window the user opened intentionally.
-    if (status.textContent !== 'Configure API keys') return;
+    if (status.textContent !== '配置 API Key') return;
     modal.classList.add('hidden');
-    status.textContent = 'Idle';
+    status.textContent = '空闲';
   } catch (_e) {
     // Startup should remain usable even if this compatibility shim cannot read settings.
   }

@@ -8,6 +8,7 @@ const state = {
   // 采集资源
   contexts: [],
   nodes: [],
+  pcmWorklets: [],
   streams: [],
   dgMic: null,
   dgSys: null,
@@ -52,7 +53,7 @@ const MIC_SVG =
 function showEmptyState() {
   $('transcript').innerHTML =
     `<div class="transcript-empty"><div class="empty-mic">${MIC_SVG}</div>` +
-    '<p>Once you start listening, the conversation between the interviewer and candidate will appear here.</p></div>';
+    '<p>开始监听后，面试官与候选人的对话将显示在这里。</p></div>';
 }
 
 function clearEmptyState() {
@@ -76,7 +77,7 @@ function addDaySeparator() {
   const sep = document.createElement('div');
   sep.className = 'day-sep';
   const clock = new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-  sep.textContent = `Today · ${clock}`;
+  sep.textContent = `今天 · ${clock}`;
   t.appendChild(sep);
 }
 
@@ -92,14 +93,14 @@ function isQuestion(text) {
 function avatarEl(role) {
   const a = document.createElement('div');
   a.className = role === 'interviewee' ? 'avatar you-av' : 'avatar';
-  a.textContent = role === 'interviewee' ? 'YOU' : 'IV';
+  a.textContent = role === 'interviewee' ? '我' : '面';
   return a;
 }
 
 function metaEl(role, rightText) {
   const m = document.createElement('div');
   m.className = 'msg-meta';
-  const who = `<span class="who">${role === 'interviewee' ? 'You' : 'Interviewer'}</span>`;
+  const who = `<span class="who">${role === 'interviewee' ? '我' : '面试官'}</span>`;
   const ts = `<span class="ts">${rightText}</span>`;
   m.innerHTML = role === 'interviewee' ? `${ts} ${who}` : `${who} ${ts}`;
   return m;
@@ -126,7 +127,7 @@ function appendFinalLine(role, text) {
     const badge = document.createElement('div');
     badge.className = 'badge';
     badge.innerHTML =
-      '<svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3z"/></svg> Question detected';
+      '<svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3z"/></svg> 检测到问题';
     main.appendChild(badge);
   }
 
@@ -145,7 +146,7 @@ function updateInterim(role, text) {
     el.className = `msg ${role === 'interviewee' ? 'you' : 'interviewer'} interim`;
     const main = document.createElement('div');
     main.className = 'msg-main';
-    main.appendChild(metaEl(role, 'live'));
+    main.appendChild(metaEl(role, '实时'));
     const bubble = document.createElement('div');
     bubble.className = 'bubble';
     main.appendChild(bubble);
@@ -280,17 +281,17 @@ async function listInputDevices() {
     inputs.forEach((d, i) => {
       const opt = document.createElement('option');
       opt.value = d.deviceId;
-      opt.textContent = d.label || `Microphone ${i + 1}`;
+      opt.textContent = d.label || `麦克风 ${i + 1}`;
       micSel.appendChild(opt);
     });
     if (prevMic) micSel.value = prevMic;
 
     // 系统音源：保留 loopback 选项 + 追加可选输入设备（如 BlackHole）
-    sysSel.innerHTML = '<option value="__loopback__">System Audio (Loopback)</option>';
+    sysSel.innerHTML = '<option value="__loopback__">系统声音（回环）</option>';
     inputs.forEach((d, i) => {
       const opt = document.createElement('option');
       opt.value = d.deviceId;
-      opt.textContent = d.label || `Input ${i + 1}`;
+      opt.textContent = d.label || `输入设备 ${i + 1}`;
       sysSel.appendChild(opt);
     });
     if (prevSys) sysSel.value = prevSys;
@@ -315,15 +316,15 @@ async function handleSystemCaptureError(e, sysVal) {
     const status = await window.api.getScreenPermission();
     if (status !== 'granted') {
       toast(
-        'System audio needs Screen Recording permission. Opening Settings — enable “Electron”, then restart the app.',
+        '采集系统声音需要「屏幕录制」权限。正在打开系统设置 —— 请勾选「Electron」后重启应用。',
         true,
       );
-      setStatus('Grant Screen Recording, then restart', 'error');
+      setStatus('请授予屏幕录制权限并重启', 'error');
       window.api.openScreenSettings();
       return;
     }
   }
-  toast('Couldn’t capture system audio: ' + e.message + ' — continuing with mic only', true);
+  toast('无法采集系统声音：' + e.message + ' —— 将仅使用麦克风继续', true);
 }
 
 async function getSystemStream(value) {
@@ -346,13 +347,33 @@ async function wireStream(stream, dg) {
   const silent = ctx.createGain();
   silent.gain.value = 0;
 
-  worklet.port.onmessage = (e) => dg.send(e.data);
+  let flushResolve = null;
+  worklet.port.onmessage = (e) => {
+    if (e.data && e.data.type === 'flushed') {
+      if (flushResolve) flushResolve();
+      flushResolve = null;
+      return;
+    }
+    dg.send(e.data);
+  };
+  worklet.flushPcm = () =>
+    new Promise((resolve) => {
+      flushResolve = resolve;
+      worklet.port.postMessage({ type: 'flush' });
+      setTimeout(() => {
+        if (flushResolve === resolve) {
+          flushResolve = null;
+          resolve();
+        }
+      }, 250);
+    });
 
   source.connect(worklet);
   worklet.connect(silent);
   silent.connect(ctx.destination);
 
   state.contexts.push(ctx);
+  state.pcmWorklets.push(worklet);
   state.nodes.push(source, worklet, silent);
   // dg 期望的采样率以实际 AudioContext 为准
   dg.sampleRate = ctx.sampleRate;
@@ -362,7 +383,7 @@ function setListeningUI(on) {
   const btn = $('toggleBtn');
   btn.classList.toggle('primary', !on);
   btn.classList.toggle('danger', on);
-  btn.querySelector('.label').textContent = on ? 'Stop Listening' : 'Start Listening';
+  btn.querySelector('.label').textContent = on ? '停止监听' : '开始监听';
   const icon = on
     ? '<svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor"><rect x="5" y="5" width="14" height="14" rx="2"/></svg>'
     : '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>';
@@ -371,12 +392,12 @@ function setListeningUI(on) {
 
 async function startListening() {
   if (!state.settings.deepgramApiKey) {
-    toast('Add your Deepgram API key in Settings first', true);
+    toast('请先在设置中填写 Deepgram API Key', true);
     openSettings();
     return;
   }
 
-  setStatus('Initializing…');
+  setStatus('初始化…');
   try {
     await window.api.ensureMicPermission();
 
@@ -386,7 +407,7 @@ async function startListening() {
     try {
       // Loopback 需要屏幕录制权限：已明确拒绝时直接引导，不触发 getDisplayMedia（避免一串报错）。
       if (sysVal === '__loopback__' && (await window.api.getScreenPermission()) === 'denied') {
-        await handleSystemCaptureError(new Error('Screen Recording permission denied'), sysVal);
+        await handleSystemCaptureError(new Error('屏幕录制权限被拒绝'), sysVal);
       } else {
         sysStream = await getSystemStream(sysVal);
       }
@@ -426,20 +447,20 @@ async function startListening() {
     if (!$('transcript').querySelector('.day-sep')) addDaySeparator();
     setLive(true);
     setListeningUI(true);
-    setStatus('Listening', 'live');
+    setStatus('监听中', 'live');
     // 拿到权限后刷新设备名称
     listInputDevices();
   } catch (e) {
     console.error(e);
-    setStatus('Failed to start', 'error');
-    toast('Failed to start: ' + e.message, true);
+    setStatus('启动失败', 'error');
+    toast('启动失败：' + e.message, true);
     await stopListening();
   }
 }
 
 function onDgState(which, s, info) {
   if (s === 'error') {
-    setStatus('Transcription error', 'error');
+    setStatus('转写出错', 'error');
     if (info) toast(`Deepgram (${which}): ${info}`, true);
   }
 }
@@ -447,14 +468,9 @@ function onDgState(which, s, info) {
 async function stopListening() {
   state.listening = false;
   clearTimeout(state.autoTimer);
-  try {
-    if (state.dgMic) state.dgMic.close();
-  } catch (_e) {}
-  try {
-    if (state.dgSys) state.dgSys.close();
-  } catch (_e) {}
-  state.dgMic = null;
-  state.dgSys = null;
+
+  await Promise.all(state.pcmWorklets.map((worklet) => worklet.flushPcm()));
+  state.pcmWorklets = [];
 
   state.nodes.forEach((n) => {
     try {
@@ -471,11 +487,24 @@ async function stopListening() {
   state.streams.forEach((s) => s.getTracks().forEach((t) => t.stop()));
   state.streams = [];
 
+  const clients = [state.dgMic, state.dgSys].filter(Boolean);
+  await Promise.all(
+    clients.map(async (client) => {
+      try {
+        await client.close();
+      } catch (e) {
+        console.error('transcription finalization failed:', e);
+      }
+    }),
+  );
+  state.dgMic = null;
+  state.dgSys = null;
+
   clearInterim('interviewer');
   clearInterim('interviewee');
   setLive(false);
   setListeningUI(false);
-  setStatus('Idle');
+  setStatus('空闲');
 }
 
 // ---------------- 生成答案 ----------------
@@ -486,7 +515,7 @@ function triggerGenerate() {
   // 作答上下文：最近 15 轮对话历史（问题检测在主进程里只取其末尾几轮）
   const transcript = buildRecentDialogue(15);
   if (!manual && !transcript) {
-    toast('Nothing to answer yet — start listening or type a question', true);
+    toast('还没有可作答的内容 —— 请先开始监听，或直接输入一个问题', true);
     $('questionBox').focus();
     return;
   }
@@ -500,7 +529,7 @@ function triggerGenerate() {
   $('cancelBtn').disabled = false;
   if (!manual) {
     const turns = transcript.split('\n').length;
-    toast(`Detecting the question from the last ${turns} turns…`);
+    toast(`正在从最近 ${turns} 轮对话中识别问题…`);
   }
   // manual 为空 → 让 Gemini 从最近对话里提取问题再作答；非空 → 直接回答该问题
   window.api.generateAnswer({ reqId: state.reqId, question: manual, transcript });
@@ -517,7 +546,7 @@ function updateCounter(text) {
   const n = charCount(text);
   const max = state.settings ? state.settings.maxChars || 500 : 500;
   const el = $('charCounter');
-  el.textContent = `${n} / ${max} chars`;
+  el.textContent = `${n} / ${max} 字`;
   el.classList.toggle('over', n > max);
 }
 
@@ -529,8 +558,7 @@ async function refreshDocs(list) {
   if (!docs || docs.length === 0) {
     const li = document.createElement('li');
     li.className = 'docs-empty';
-    li.textContent =
-      'No materials yet. Upload a résumé, job description, or notes — answers will reference these first.';
+    li.textContent = '还没有资料。上传简历、职位描述或笔记 —— 作答时会优先参考这些内容。';
     ul.appendChild(li);
     return;
   }
@@ -541,11 +569,11 @@ async function refreshDocs(list) {
     left.textContent = d.name;
     const meta = document.createElement('span');
     meta.className = 'doc-meta';
-    meta.textContent = `${d.chars.toLocaleString()} chars`;
+    meta.textContent = `${d.chars.toLocaleString()} 字`;
     left.appendChild(meta);
     const rm = document.createElement('button');
     rm.className = 'rm';
-    rm.textContent = 'Remove';
+    rm.textContent = '移除';
     rm.onclick = async () => refreshDocs(await window.api.removeDocument(d.id));
     li.appendChild(left);
     li.appendChild(rm);
@@ -559,20 +587,115 @@ function openSettings() {
   $('setDeepgram').value = s.deepgramApiKey || '';
   $('setProvider').value = s.provider || 'gemini';
   $('setDeepseek').value = s.deepseekApiKey || '';
-  $('setDeepseekModel').value = s.deepseekModel || 'deepseek-chat';
+  $('setDeepseekModel').value = s.deepseekModel || 'deepseek-flash';
+  $('setDeepseekThinking').value = s.deepseekThinking || 'disabled';
   $('setGemini').value = s.geminiApiKey || '';
   $('setModel').value = s.genModel || 'gemini-2.5-flash';
   $('setOpenai').value = s.openaiApiKey || '';
   $('setOpenaiModel').value = s.openaiModel || 'gpt-4o-mini';
+  $('setKimi').value = s.kimiApiKey || '';
+  $('setKimiModel').value = s.kimiModel || 'k3-256k';
+  $('setKimiEffort').value = s.kimiReasoningEffort || 'low';
   $('setOllamaURL').value = s.ollamaBaseURL || 'http://localhost:11434/v1/chat/completions';
   $('setOllamaModel').value = s.ollamaModel || 'llama3.1';
+  $('setCustomURL').value = s.customBaseURL || '';
+  $('setCustomKey').value = s.customApiKey || '';
+  $('setCustomModel').value = s.customModel || '';
   $('setSttLang').value = s.sttLanguage || 'en-US';
   $('setAnswerLang').value = s.answerLanguage || 'auto';
   $('setMaxChars').value = s.maxChars || 500;
   $('setHotkey').value = s.hotkey || 'Control+A';
   $('setProfile').value = s.interviewProfile || '';
   $('setJD').value = s.jobDescription || '';
+  updateLlmProviderUI();
   $('settingsModal').classList.remove('hidden');
+}
+
+// 只显示当前作答服务商对应的字段，其余隐藏。
+function updateLlmProviderUI() {
+  const provider = $('setProvider').value || 'gemini';
+  document.querySelectorAll('[data-llm-provider]').forEach((el) => {
+    el.style.display = el.dataset.llmProvider === provider ? '' : 'none';
+  });
+  // 后台静默拉取该服务商的模型列表（失败不打扰，点「刷新模型列表」才会提示错误）。
+  void refreshModelList(provider, { silent: true });
+}
+
+// OpenAI 兼容服务商的模型列表来源：模型输入框 / 选择器 / 请求地址 / Key。
+// Gemini 协议不同，保持手填。
+const LLM_MODEL_SOURCES = {
+  deepseek: {
+    input: 'setDeepseekModel',
+    picker: 'dsModelPicker',
+    url: () => 'https://api.deepseek.com/chat/completions',
+    key: () => $('setDeepseek').value.trim(),
+  },
+  openai: {
+    input: 'setOpenaiModel',
+    picker: 'oaModelPicker',
+    url: () => 'https://api.openai.com/v1/chat/completions',
+    key: () => $('setOpenai').value.trim(),
+  },
+  kimi: {
+    input: 'setKimiModel',
+    picker: 'kimiModelPicker',
+    url: () => 'https://api.kimi.com/coding/v1/chat/completions',
+    key: () => $('setKimi').value.trim(),
+  },
+  ollama: {
+    input: 'setOllamaModel',
+    picker: 'olModelPicker',
+    url: () => $('setOllamaURL').value.trim(),
+    key: () => '',
+  },
+  custom: {
+    input: 'setCustomModel',
+    picker: 'cuModelPicker',
+    url: () => $('setCustomURL').value.trim(),
+    key: () => $('setCustomKey').value.trim(),
+  },
+};
+
+function escapeHTML(s) {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+// 从云端拉取模型列表填充选择器。拉到列表就只显示下拉（单控件），
+// 想手填可选「自定义…」切回输入框；拉不到列表就只显示输入框。
+async function refreshModelList(provider, { silent = false } = {}) {
+  const src = LLM_MODEL_SOURCES[provider];
+  if (!src) return;
+  const picker = $(src.picker);
+  const input = $(src.input);
+  const fallbackToInput = () => {
+    picker.hidden = true;
+    input.hidden = false;
+  };
+  const baseURL = src.url();
+  if (!baseURL) {
+    fallbackToInput();
+    if (!silent) toast('请先填写请求地址', true);
+    return;
+  }
+  const { models, error } = await window.api.listModels({ baseURL, apiKey: src.key() });
+  if (error || models.length === 0) {
+    fallbackToInput();
+    if (!silent) toast(error || '该端点没有返回模型列表', true);
+    return;
+  }
+  const current = input.value.trim();
+  const ids = current && !models.includes(current) ? [current, ...models] : models;
+  picker.innerHTML =
+    ids.map((m) => `<option value="${escapeHTML(m)}">${escapeHTML(m)}</option>`).join('') +
+    '<option value="__custom__">自定义…</option>';
+  picker.hidden = false;
+  input.hidden = true;
+  picker.value = current || ids[0];
+  if (!silent) toast(`已获取 ${models.length} 个模型`);
 }
 
 async function saveSettings() {
@@ -580,13 +703,20 @@ async function saveSettings() {
     deepgramApiKey: $('setDeepgram').value.trim(),
     provider: $('setProvider').value,
     deepseekApiKey: $('setDeepseek').value.trim(),
-    deepseekModel: $('setDeepseekModel').value.trim() || 'deepseek-chat',
+    deepseekModel: $('setDeepseekModel').value.trim() || 'deepseek-flash',
+    deepseekThinking: $('setDeepseekThinking').value,
     geminiApiKey: $('setGemini').value.trim(),
     genModel: $('setModel').value.trim() || 'gemini-2.5-flash',
     openaiApiKey: $('setOpenai').value.trim(),
     openaiModel: $('setOpenaiModel').value.trim() || 'gpt-4o-mini',
+    kimiApiKey: $('setKimi').value.trim(),
+    kimiModel: $('setKimiModel').value.trim() || 'k3-256k',
+    kimiReasoningEffort: $('setKimiEffort').value,
     ollamaBaseURL: $('setOllamaURL').value.trim() || 'http://localhost:11434/v1/chat/completions',
     ollamaModel: $('setOllamaModel').value.trim() || 'llama3.1',
+    customBaseURL: $('setCustomURL').value.trim(),
+    customApiKey: $('setCustomKey').value.trim(),
+    customModel: $('setCustomModel').value.trim(),
     sttLanguage: $('setSttLang').value,
     answerLanguage: $('setAnswerLang').value,
     maxChars: parseInt($('setMaxChars').value, 10) || 500,
@@ -599,7 +729,7 @@ async function saveSettings() {
   $('langSelect').value = state.settings.sttLanguage || 'en-US';
   $('settingsModal').classList.add('hidden');
   updateCounter($('answer').textContent);
-  toast('Settings saved');
+  toast('设置已保存');
 }
 
 // ---------------- 事件绑定 ----------------
@@ -608,17 +738,36 @@ function bindEvents() {
   $('settingsBtn').onclick = openSettings;
   $('closeSettings').onclick = () => $('settingsModal').classList.add('hidden');
   $('saveSettings').onclick = saveSettings;
+  $('setProvider').onchange = updateLlmProviderUI;
+  document.querySelectorAll('[data-refresh-models]').forEach((btn) => {
+    btn.onclick = () => refreshModelList(btn.dataset.refreshModels);
+  });
+  document.querySelectorAll('[data-model-picker]').forEach((picker) => {
+    const src = LLM_MODEL_SOURCES[picker.dataset.modelPicker];
+    if (!src) return;
+    picker.onchange = () => {
+      const input = $(src.input);
+      if (picker.value === '__custom__') {
+        input.hidden = false;
+        input.focus();
+        input.select();
+      } else {
+        input.value = picker.value;
+        input.hidden = true;
+      }
+    };
+  });
 
   // 上传 / 清空 目标岗位 JD（保存时随设置一起持久化）
   $('uploadJD').onclick = async () => {
     const r = await window.api.pickJD();
     if (!r) return;
     if (r.error) {
-      toast('Failed to parse JD: ' + r.error, true);
+      toast('JD 解析失败：' + r.error, true);
       return;
     }
     $('setJD').value = r.text || '';
-    toast(`Loaded JD: ${r.name} (${charCount(r.text)} chars). Click Save to keep it.`);
+    toast(`已加载 JD：${r.name}（${charCount(r.text)} 字）。点击「保存」生效。`);
   };
   $('clearJD').onclick = () => {
     $('setJD').value = '';
@@ -644,8 +793,7 @@ function bindEvents() {
 
   $('uploadBtn').onclick = async () => {
     const res = await window.api.pickDocuments();
-    if (res.errors && res.errors.length)
-      toast('Some files failed to parse: ' + res.errors.join('; '), true);
+    if (res.errors && res.errors.length) toast('部分文件解析失败：' + res.errors.join('；'), true);
     refreshDocs(res.docs);
   };
   $('clearDocsBtn').onclick = async () => refreshDocs(await window.api.clearDocuments());
@@ -653,10 +801,10 @@ function bindEvents() {
   $('pasteBtn').onclick = () => $('pasteModal').classList.remove('hidden');
   $('closePaste').onclick = () => $('pasteModal').classList.add('hidden');
   $('savePaste').onclick = async () => {
-    const name = $('pasteName').value.trim() || 'Pasted text';
+    const name = $('pasteName').value.trim() || '粘贴的文本';
     const text = $('pasteText').value;
     if (!text.trim()) {
-      toast('Content is empty', true);
+      toast('内容为空', true);
       return;
     }
     const docs = await window.api.addTextDocument({ name, text });
@@ -664,7 +812,7 @@ function bindEvents() {
     $('pasteText').value = '';
     $('pasteModal').classList.add('hidden');
     refreshDocs(docs);
-    toast('Added to Knowledge Base');
+    toast('已添加到知识库');
   };
 
   // 转写语言切换：持久化；若正在监听则自动重连以立即生效
@@ -674,11 +822,11 @@ function bindEvents() {
     $('setSttLang').value = lang;
     const label = e.target.selectedOptions[0].textContent;
     if (state.listening) {
-      toast(`Transcript language → ${label}, reconnecting…`);
+      toast(`转写语言已切换为 ${label}，正在重连…`);
       await stopListening();
       await startListening();
     } else {
-      toast(`Transcript language set to ${label}`);
+      toast(`转写语言已设置为 ${label}`);
     }
   };
 
@@ -693,11 +841,7 @@ function bindEvents() {
   // 自动作答开关
   $('autoAnswer').onchange = async (e) => {
     state.settings = await window.api.saveSettings({ autoAnswer: e.target.checked });
-    toast(
-      e.target.checked
-        ? 'Auto-answer on — I’ll answer when the interviewer finishes a question'
-        : 'Auto-answer off',
-    );
+    toast(e.target.checked ? '自动作答已开启 —— 面试官问完问题后将自动作答' : '自动作答已关闭');
   };
 
   // 全局热键
@@ -708,7 +852,7 @@ function bindEvents() {
     $('answer').textContent = '';
     updateCounter('');
     if (model && primary && model !== primary) {
-      toast(`${primary} is busy — answered with ${model} instead`);
+      toast(`${primary} 正忙 —— 已改用 ${model} 作答`);
     }
   });
   // 识别到的问题：回填到「Current Question」框供查看/编辑
@@ -748,9 +892,11 @@ async function init() {
   await listInputDevices();
   await refreshDocs();
   if (!state.settings.deepgramApiKey || !state.settings.geminiApiKey) {
-    setStatus('Configure API keys');
+    setStatus('配置 API Key');
     openSettings();
   }
+  // 通知扩展层（capture-mode.js 等）：init 已完成，事件绑定已就绪。
+  window.dispatchEvent(new Event('app-ready'));
 }
 
 window.addEventListener('DOMContentLoaded', init);

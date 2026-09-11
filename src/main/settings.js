@@ -17,15 +17,25 @@ const DEFAULTS = {
   doubaoResourceId: process.env.DOUBAO_ASR_RESOURCE_ID || 'volc.seedasr.sauc.duration',
   doubaoWsUrl:
     process.env.DOUBAO_ASR_WS_URL || 'wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_nostream',
-  // 答案 Provider： deepseek / gemini / openai / ollama
+  // 答案 Provider： deepseek / gemini / openai / kimi / ollama / custom
   provider: 'gemini',
   geminiApiKey: process.env.GEMINI_API_KEY || '',
   deepseekApiKey: process.env.DEEPSEEK_API_KEY || '',
-  deepseekModel: 'deepseek-chat',
+  deepseekModel: 'deepseek-flash',
+  // DeepSeek 思考模式：disabled 关闭（最快）/ low / high / max（服务端默认开·high，慢）。
+  deepseekThinking: 'disabled',
   openaiApiKey: process.env.OPENAI_API_KEY || '',
   openaiModel: 'gpt-4o-mini',
+  kimiApiKey: process.env.KIMI_API_KEY || '',
+  kimiModel: 'k3-256k',
+  // k3 始终思考，reasoning_effort 只调力度：low / high / max（服务端默认 max，慢）。
+  kimiReasoningEffort: 'low',
   ollamaBaseURL: process.env.OLLAMA_BASE_URL || 'http://localhost:11434/v1/chat/completions',
   ollamaModel: 'llama3.1',
+  // 自定义 OpenAI 兼容端点（Key 可留空）
+  customBaseURL: '',
+  customApiKey: '',
+  customModel: '',
   // 转写语言： zh / en-US / multi
   sttLanguage: 'en-US',
   // 生成模型（可编辑，填你账号能用的任意 Flash 模型 ID）
@@ -63,6 +73,12 @@ function load() {
       saved.doubaoWsUrl === 'wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async'
     ) {
       merged.doubaoWsUrl = 'wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_nostream';
+    }
+    // 迁移早期错误的 Kimi 默认模型名（kimi-k3 → k3-256k）
+    if (merged.kimiModel === 'kimi-k3') merged.kimiModel = DEFAULTS.kimiModel;
+    // 迁移已退役的 DeepSeek 旧模型名（deepseek-chat/deepseek-reasoner → deepseek-flash）
+    if (merged.deepseekModel === 'deepseek-chat' || merged.deepseekModel === 'deepseek-reasoner') {
+      merged.deepseekModel = DEFAULTS.deepseekModel;
     }
     return merged;
   } catch (_e) {

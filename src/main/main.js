@@ -20,6 +20,7 @@ const llm = require('./llm');
 const gemini = require('./gemini');
 const openaiCompat = require('./openaiCompat');
 const prompt = require('./prompt');
+const { DoubaoAsrSession } = require('./doubaoAsr');
 const { PROVIDERS } = require('./config');
 
 // 按当前 Provider（config.js 注册表）解析出：流式实现 / Key / baseURL / 模型链
@@ -32,10 +33,12 @@ function resolveProvider(s) {
     id,
     label: p.label,
     type: p.type,
-    needsKey: !!p.keyField,
+    needsKey: !!p.keyField && !p.optionalKey,
     apiKey: p.keyField ? s[p.keyField] || '' : '',
-    baseURL: p.baseURLField ? s[p.baseURLField] || p.baseURL : p.baseURL,
+    baseURL: p.baseURLField ? ((s[p.baseURLField] || '') + '').trim() || p.baseURL : p.baseURL,
     models,
+    temperature: p.temperature,
+    reasoningEffort: p.reasoningField ? (s[p.reasoningField] || '') + '' : '',
     streamFn: p.type === 'gemini' ? gemini.generateAnswerStream : openaiCompat.generateAnswerStream,
   };
 }
@@ -46,6 +49,27 @@ app.setName('interview-copilot');
 let mainWindow = null;
 let currentSettings = settingsStore.load();
 let activeGen = null; // { id, controller }
+
+// 豆包 ASR 会话表。预加载脚本运行在安全隔离环境，不能加载 Node 侧模块，
+// 因此会话由主进程托管，渲染进程只通过 doubao-stt-* 窄通道收发消息。
+const doubaoSessions = new Map();
+
+function emitDoubaoEvent(sender, sessionId, payload) {
+  if (sender && !sender.isDestroyed()) {
+    sender.send('doubao-stt-event', { sessionId, ...payload });
+  }
+}
+
+function closeAllDoubaoSessions() {
+  for (const session of doubaoSessions.values()) {
+    try {
+      session.abort();
+    } catch (_e) {
+      /* ignore */
+    }
+  }
+  doubaoSessions.clear();
+}
 
 function createWindow() {
   const smoke = !!process.env.INTERVIEW_SMOKE;
@@ -67,16 +91,49 @@ function createWindow() {
   mainWindow.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
 
   if (smoke) {
-    mainWindow.webContents.on('did-finish-load', () => {
-      console.log('[smoke] window loaded OK');
-      app.quit();
-    });
     mainWindow.webContents.on('did-fail-load', (_e, code, desc) => {
       console.error('[smoke] load failed', code, desc);
       process.exit(1);
     });
     mainWindow.webContents.on('console-message', (_e, level, message) => {
       console.log('[renderer]', message);
+    });
+    mainWindow.webContents.on('did-finish-load', async () => {
+      try {
+        // capture-mode.js 在 app-ready 之后才接管 UI，init 含 IPC 与设备枚举，需要轮询等待。
+        const evalCheck = () =>
+          mainWindow.webContents.executeJavaScript(`(() => {
+            const api = window.api;
+            const fns = [
+              'getSettings', 'saveSettings', 'generateAnswer', 'listModels',
+              'doubaoSttStart', 'doubaoSttSend', 'doubaoSttClose', 'onDoubaoSttEvent',
+              'onHotkeyGenerate', 'clearHotkeyGenerateListeners',
+            ];
+            return {
+              hasApi: !!api,
+              missing: fns.filter((name) => !api || typeof api[name] !== 'function'),
+              captureModeLoaded: !!document.getElementById('setSttProvider'),
+              hasOpenSettings: typeof openSettings === 'function',
+            };
+          })()`);
+        let check = null;
+        for (let i = 0; i < 20; i += 1) {
+          check = await evalCheck();
+          if (check.hasApi && check.captureModeLoaded) break;
+          await new Promise((r) => setTimeout(r, 300));
+        }
+        const ok =
+          check.hasApi && !check.missing.length && check.captureModeLoaded && check.hasOpenSettings;
+        if (!ok) {
+          console.error('[smoke] renderer API check failed', JSON.stringify(check));
+          process.exit(1);
+        }
+        console.log('[smoke] window loaded OK');
+        app.quit();
+      } catch (e) {
+        console.error('[smoke] check errored', e);
+        process.exit(1);
+      }
     });
   }
 
@@ -162,6 +219,7 @@ function createWindow() {
 
   mainWindow.on('closed', () => {
     mainWindow = null;
+    closeAllDoubaoSessions();
   });
 }
 
@@ -267,6 +325,93 @@ ipcMain.handle('pick-jd', async () => {
   }
 });
 
+// 豆包 ASR：开始会话。转写与状态事件通过 doubao-stt-event 回发到发起页面。
+ipcMain.handle('doubao-stt-start', async (e, options = {}) => {
+  const sessionId = String(options.sessionId || '');
+  if (!sessionId) throw new Error('Doubao sessionId is required');
+
+  const previous = doubaoSessions.get(sessionId);
+  if (previous) previous.abort();
+
+  const sender = e.sender;
+  const session = new DoubaoAsrSession({
+    apiKey: options.apiKey,
+    appKey: options.appKey,
+    accessKey: options.accessKey,
+    resourceId: options.resourceId,
+    wsUrl: options.wsUrl,
+    language: options.language,
+    sampleRate: options.sampleRate,
+    onTranscript: (result) => emitDoubaoEvent(sender, sessionId, { type: 'transcript', ...result }),
+    onState: (state, info) => emitDoubaoEvent(sender, sessionId, { type: 'state', state, info }),
+  });
+  doubaoSessions.set(sessionId, session);
+  try {
+    await session.connect();
+    return { ok: true };
+  } catch (err) {
+    doubaoSessions.delete(sessionId);
+    try {
+      session.abort();
+    } catch (_e) {
+      /* ignore */
+    }
+    throw err;
+  }
+});
+
+// 豆包 ASR：发送一段 PCM（16kHz / 16-bit / mono）。
+ipcMain.handle('doubao-stt-send', (_e, { sessionId, buffer } = {}) => {
+  const session = doubaoSessions.get(String(sessionId || ''));
+  if (!session || !buffer) return false;
+  session.send(buffer);
+  return true;
+});
+
+// 豆包 ASR：发送最终包并等待服务端最终响应后关闭。
+ipcMain.handle('doubao-stt-close', async (_e, sessionId) => {
+  const key = String(sessionId || '');
+  const session = doubaoSessions.get(key);
+  if (!session) return false;
+  try {
+    await session.close();
+    return true;
+  } finally {
+    doubaoSessions.delete(key);
+  }
+});
+
+// 拉取 OpenAI 兼容端点的模型列表：GET {base}/models（base 由 chat/completions 地址推导）。
+ipcMain.handle('list-models', async (_e, { baseURL, apiKey } = {}) => {
+  const base = ((baseURL || '') + '')
+    .trim()
+    .replace(/\/+$/, '')
+    .replace(/\/chat\/completions$/, '');
+  if (!base) return { models: [], error: '请求地址为空' };
+  const headers = {};
+  if (apiKey) headers.Authorization = 'Bearer ' + apiKey;
+  try {
+    const res = await fetch(`${base}/models`, { headers });
+    if (!res.ok) {
+      let txt = '';
+      try {
+        txt = await res.text();
+      } catch (_e) {
+        /* ignore */
+      }
+      return { models: [], error: `获取模型列表失败 (${res.status}): ${txt.slice(0, 200)}` };
+    }
+    const json = await res.json();
+    const models = (Array.isArray(json.data) ? json.data : [])
+      .map((m) => (m && (m.id || m.name)) || '')
+      .filter(Boolean)
+      .sort();
+    return { models };
+  } catch (e) {
+    return { models: [], error: `获取模型列表失败: ${e.message}` };
+  }
+});
+
 // 取消正在进行的生成
 ipcMain.on('cancel-generate', () => {
   if (activeGen) {
@@ -297,6 +442,12 @@ ipcMain.on('generate-answer', async (_e, { reqId, question, transcript }) => {
   const prov = resolveProvider(currentSettings);
   if (prov.needsKey && !prov.apiKey) {
     send('answer-error', { message: `未配置 ${prov.label} API Key，请在「设置」中填写。` });
+    return;
+  }
+  if (!prov.baseURL || !prov.models[0]) {
+    send('answer-error', {
+      message: `请在「设置」中完善 ${prov.label} 的请求地址和模型名。`,
+    });
     return;
   }
 
@@ -340,6 +491,10 @@ ipcMain.on('generate-answer', async (_e, { reqId, question, transcript }) => {
     apiKey: prov.apiKey,
     baseURL: prov.baseURL,
     models: prov.models,
+    // undefined 时走各 Provider 实现的默认值（0.6）；Kimi Code 的 k3 系列只接受 1。
+    temperature: prov.temperature,
+    // Kimi k3 的思考力度（low/high/max）；空字符串表示不下发，其他服务商忽略。
+    reasoningEffort: prov.reasoningEffort,
     thinkingBudget: 0,
     signal: controller.signal,
   };
@@ -430,6 +585,7 @@ app.whenReady().then(() => {
 });
 
 app.on('will-quit', () => {
+  closeAllDoubaoSessions();
   globalShortcut.unregisterAll();
 });
 

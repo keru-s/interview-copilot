@@ -28,6 +28,7 @@ async function generateAnswerStream({
   userText,
   maxOutputTokens = 2048,
   temperature = 0.6,
+  reasoningEffort = '',
   signal,
   onStart,
   onChunk,
@@ -46,6 +47,13 @@ async function generateAnswerStream({
     max_tokens: maxOutputTokens,
     temperature,
   };
+  // Kimi k3 等思考模型的推理强度（low/high/max）；不下发时由服务端默认。
+  // 'disabled' 是 DeepSeek 的用法：thinking.type=disabled 整体关闭思考模式。
+  if (reasoningEffort === 'disabled') {
+    body.thinking = { type: 'disabled' };
+  } else if (reasoningEffort) {
+    body.reasoning_effort = reasoningEffort;
+  }
 
   const res = await fetch(endpoint, {
     method: 'POST',

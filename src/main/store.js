@@ -83,19 +83,8 @@ const ZH_STOP = new Set([
 
 // 高频面试技术词别名。只扩展 query，不改原文；例如问 SFT，也能命中“监督微调”。
 const ALIAS_GROUPS = [
-  [
-    'sft',
-    'supervised fine tuning',
-    'supervised fine-tuning',
-    '监督微调',
-    '有监督微调',
-  ],
-  [
-    'rag',
-    'retrieval augmented generation',
-    'retrieval-augmented generation',
-    '检索增强生成',
-  ],
+  ['sft', 'supervised fine tuning', 'supervised fine-tuning', '监督微调', '有监督微调'],
+  ['rag', 'retrieval augmented generation', 'retrieval-augmented generation', '检索增强生成'],
   ['llm', 'large language model', '大语言模型'],
   ['lora', 'low rank adaptation', 'low-rank adaptation', '低秩适配'],
   ['rlhf', 'reinforcement learning from human feedback', '人类反馈强化学习'],
@@ -343,9 +332,7 @@ function search(query, { topK = 5, minScore = 0.75, maxChars = 10000 } = {}) {
     const remain = maxChars - used;
     if (remain <= 80) break;
     const finalBlock =
-      block.length <= remain
-        ? block
-        : `${block.slice(0, Math.max(0, remain - 12))}\n[片段截断]`;
+      block.length <= remain ? block : `${block.slice(0, Math.max(0, remain - 12))}\n[片段截断]`;
     blocks.push(finalBlock);
     used += finalBlock.length + 10;
     matches.push({
