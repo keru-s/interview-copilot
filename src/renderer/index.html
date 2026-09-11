@@ -92,33 +92,31 @@
     </header>
 
     <main class="layout">
-      <!-- Left: live transcript -->
-      <section class="card transcript-card">
+      <!-- Left: answer -->
+      <div class="card answer-card">
         <div class="card-head">
           <div class="card-title">
             <svg
               viewBox="0 0 24 24"
-              width="16"
-              height="16"
+              width="15"
+              height="15"
               fill="none"
               stroke="currentColor"
               stroke-width="2"
               stroke-linecap="round"
               stroke-linejoin="round"
             >
-              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+              <rect x="3" y="11" width="18" height="11" rx="2" />
+              <path d="M7 11V7a5 5 0 0 1 10 0v4" />
             </svg>
-            <span>实时转写</span>
+            <span>答案</span>
           </div>
-          <button id="clearTranscript" class="link-btn">清空</button>
+          <span id="charCounter" class="counter">0 / 500 字</span>
         </div>
-        <div class="card-body transcript-body">
-          <div id="transcript" class="transcript"></div>
-          <div id="liveIndicator" class="live-indicator hidden">
-            <span class="bars"><i></i><i></i><i></i></span> 正在转写实时音频…
-          </div>
+        <div class="card-body answer-body">
+          <div id="answer" class="answer" placeholder="答案将显示在这里…"></div>
         </div>
-      </section>
+      </div>
 
       <!-- Right column -->
       <section class="right-col">
@@ -166,28 +164,30 @@
           </div>
         </div>
 
-        <div class="card answer-card">
+        <div class="card transcript-card">
           <div class="card-head">
             <div class="card-title">
               <svg
                 viewBox="0 0 24 24"
-                width="15"
-                height="15"
+                width="16"
+                height="16"
                 fill="none"
                 stroke="currentColor"
                 stroke-width="2"
                 stroke-linecap="round"
                 stroke-linejoin="round"
               >
-                <rect x="3" y="11" width="18" height="11" rx="2" />
-                <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
               </svg>
-              <span>答案</span>
+              <span>实时转写</span>
             </div>
-            <span id="charCounter" class="counter">0 / 500 字</span>
+            <button id="clearTranscript" class="link-btn">清空</button>
           </div>
-          <div class="card-body answer-body">
-            <div id="answer" class="answer" placeholder="答案将显示在这里…"></div>
+          <div class="card-body transcript-body">
+            <div id="transcript" class="transcript"></div>
+            <div id="liveIndicator" class="live-indicator hidden">
+              <span class="bars"><i></i><i></i><i></i></span> 正在转写实时音频…
+            </div>
           </div>
         </div>
 
