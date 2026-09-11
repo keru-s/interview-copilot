@@ -286,18 +286,30 @@ startListening = async function () {
     if (captureCandidate) micStream = await getMicStream($('micSelect').value);
 
     let sysStream = null;
+    let sysError = null;
     try {
       if (sysVal === '__loopback__' && (await window.api.getScreenPermission()) === 'denied') {
-        await handleSystemCaptureError(new Error('屏幕录制权限被拒绝'), sysVal);
+        sysError = new Error('屏幕录制权限被拒绝');
+        await handleSystemCaptureError(sysError, sysVal);
       } else {
         sysStream = await getSystemStream(sysVal);
       }
     } catch (e) {
+      sysError = e;
       console.error('interviewer audio capture failed:', e);
       await handleSystemCaptureError(e, sysVal);
     }
 
     if (!micStream && !sysStream) {
+      // 两路皆空时给出具体原因，而不是笼统的“没有可用的音频源”。
+      if (sysVal === '__loopback__' && (await window.api.getScreenPermission()) !== 'granted') {
+        throw new Error(
+          '无法采集面试官的系统声音：缺少「屏幕录制」权限。请在系统设置 → 隐私与安全性 → 屏幕录制中勾选本应用，然后重启。',
+        );
+      }
+      if (sysError) {
+        throw new Error(`无法采集面试官音源：${sysError.message}`);
+      }
       throw new Error('没有可用的音频源，请先选择面试官的输入设备。');
     }
 
