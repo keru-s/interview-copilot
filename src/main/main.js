@@ -107,7 +107,7 @@ function createWindow() {
             const fns = [
               'getSettings', 'saveSettings', 'generateAnswer', 'listModels',
               'doubaoSttStart', 'doubaoSttSend', 'doubaoSttClose', 'onDoubaoSttEvent',
-              'onHotkeyGenerate', 'clearHotkeyGenerateListeners',
+              'onHotkeyGenerate', 'clearHotkeyGenerateListeners', 'onHotkeyError',
             ];
             return {
               hasApi: !!api,
@@ -246,19 +246,39 @@ function setupDisplayMediaLoopback() {
   );
 }
 
+// 当前生效的热键，用于新热键注册失败时回滚。
+let activeHotkey = null;
+
+const onHotkey = () => {
+  if (mainWindow) mainWindow.webContents.send('hotkey-generate');
+};
+
 function registerHotkey() {
-  globalShortcut.unregisterAll();
   const key = currentSettings.hotkey || 'Control+A';
+  const previous = activeHotkey;
+  globalShortcut.unregisterAll();
+  activeHotkey = null;
   try {
-    const ok = globalShortcut.register(key, () => {
-      if (mainWindow) mainWindow.webContents.send('hotkey-generate');
-    });
-    if (!ok) console.warn(`热键 ${key} 注册失败（可能被占用）`);
-    return ok;
+    if (globalShortcut.register(key, onHotkey)) {
+      activeHotkey = key;
+      return true;
+    }
+    console.warn(`热键 ${key} 注册失败（可能被占用或格式非法）`);
   } catch (e) {
     console.error('注册热键出错:', e);
-    return false;
   }
+  // 注册失败：回滚到上一个可用热键，并通知渲染层提示用户。
+  if (previous && previous !== key) {
+    try {
+      if (globalShortcut.register(previous, onHotkey)) activeHotkey = previous;
+    } catch (_e) {
+      /* 上一个热键也注册不上就只能放弃 */
+    }
+  }
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('hotkey-error', { key, fallback: activeHotkey });
+  }
+  return false;
 }
 
 // ---------- IPC ----------

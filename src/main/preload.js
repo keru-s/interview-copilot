@@ -40,6 +40,8 @@ contextBridge.exposeInMainWorld('api', {
   },
   // question-capture-mode 会在初始化后接管热键语义；用于清掉旧的“直接生成”监听器。
   clearHotkeyGenerateListeners: () => ipcRenderer.removeAllListeners('hotkey-generate'),
+  // 热键注册失败（格式非法/被占用）时主进程会回滚并推送该事件。
+  onHotkeyError: (cb) => sub('hotkey-error', cb),
   onAnswerStart: (cb) => sub('answer-start', cb),
   onAnswerQuestion: (cb) => sub('answer-question', cb),
   onAnswerChunk: (cb) => sub('answer-chunk', cb),

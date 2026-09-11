@@ -192,6 +192,7 @@ openSettings = function () {
 
 saveSettings = async function () {
   ensureCaptureSettingsUI();
+  const prevCaptureMic = state.settings.captureCandidateMic !== false;
   const extra = {
     sttProvider: $('setSttProvider').value || 'deepgram',
     doubaoApiKey: $('setDoubaoApiKey').value.trim(),
@@ -203,6 +204,11 @@ saveSettings = async function () {
   await baseSaveSettings();
   state.settings = await window.api.saveSettings(extra);
   applyCaptureSettingsUI();
+  // 监听中切换候选人麦克风时重建音频管线，避免“界面已关闭但实际仍在采集”。
+  if (state.listening && prevCaptureMic !== extra.captureCandidateMic) {
+    await stopListening();
+    await startListening();
+  }
 };
 
 function onSttState(provider, which, s, info) {
@@ -396,7 +402,12 @@ async function finishQuestionCapture() {
   captureStartIndex = null;
   captureStartedListening = false;
 
-  if (provider !== 'doubao' && startedListeningHere) await stopListening();
+  if (provider === 'doubao' && !startedListeningHere) {
+    // 采集前就在持续监听：Doubao 定稿需要停会话，定稿后恢复监听，与 Deepgram 行为对齐。
+    await startListening();
+  } else if (provider !== 'doubao' && startedListeningHere) {
+    await stopListening();
+  }
 
   if (!question) {
     toast('本次采集没有转写到面试官的语音。', true);

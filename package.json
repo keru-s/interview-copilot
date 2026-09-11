@@ -45,6 +45,7 @@
     "sign": "codesign --force --deep --sign - \"dist/Real Time Interview Copilot-darwin-x64/Real Time Interview Copilot.app\"",
     "dist": "electron-builder",
     "dist:mac": "electron-builder --mac",
+    "dist:mac:local": "electron-builder --mac --arm64",
     "dist:win": "electron-builder --win",
     "dist:linux": "electron-builder --linux"
   },
@@ -64,6 +65,7 @@
         {
           "target": "dmg",
           "arch": [
+            "x64",
             "arm64"
           ]
         }

@@ -584,6 +584,23 @@ async function refreshDocs(list) {
   });
 }
 
+// 按当前选择的 STT / 作答 Provider 判断启动时就绪状态（替代原 provider-init.js 补丁）。
+function sttReady(s) {
+  const provider = s.sttProvider || 'deepgram';
+  if (provider === 'doubao') return !!s.doubaoApiKey || (!!s.doubaoAppKey && !!s.doubaoAccessKey);
+  return !!s.deepgramApiKey;
+}
+
+function llmReady(s) {
+  const provider = s.provider || 'gemini';
+  if (provider === 'deepseek') return !!s.deepseekApiKey;
+  if (provider === 'openai') return !!s.openaiApiKey;
+  if (provider === 'kimi') return !!s.kimiApiKey;
+  if (provider === 'ollama') return true;
+  if (provider === 'custom') return !!(s.customBaseURL && s.customModel);
+  return !!s.geminiApiKey;
+}
+
 // ---------------- 设置弹窗 ----------------
 function openSettings() {
   const s = state.settings;
@@ -749,6 +766,16 @@ function bindEvents() {
   $('sysSelect').onchange = async (e) => {
     state.settings = await window.api.saveSettings({ sysDeviceId: e.target.value });
   };
+  // 热键注册失败（格式非法/被占用）：主进程已回滚，这里提示用户并同步提示文案。
+  window.api.onHotkeyError(({ key, fallback }) => {
+    toast(
+      fallback
+        ? `快捷键「${key}」注册失败（被占用或格式非法），已回滚到「${fallback}」。`
+        : `快捷键「${key}」注册失败（被占用或格式非法），当前没有可用快捷键。`,
+      true,
+    );
+    if (fallback) renderHotkeyHint(fallback);
+  });
   document.querySelectorAll('[data-refresh-models]').forEach((btn) => {
     btn.onclick = () => refreshModelList(btn.dataset.refreshModels);
   });
@@ -901,7 +928,7 @@ async function init() {
   bindEvents();
   await listInputDevices();
   await refreshDocs();
-  if (!state.settings.deepgramApiKey || !state.settings.geminiApiKey) {
+  if (!sttReady(state.settings) || !llmReady(state.settings)) {
     setStatus('配置 API Key');
     openSettings();
   }

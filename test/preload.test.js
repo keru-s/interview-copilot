@@ -69,6 +69,7 @@ test('preload loads under sandbox restrictions and exposes the bridge API', () =
     'listModels',
     'onHotkeyGenerate',
     'clearHotkeyGenerateListeners',
+    'onHotkeyError',
     'doubaoSttStart',
     'doubaoSttSend',
     'doubaoSttClose',
@@ -100,16 +101,14 @@ test('index.html loads capture-mode synchronously after app.js', () => {
   // 必须作为普通 <script> 紧随 app.js 加载：晚于 DOMContentLoaded 注入会与 init() 的
   // 事件绑定产生竞态（按钮绑到覆盖前的旧函数，扩展设置无法保存）。
   const html = fs.readFileSync(path.join(__dirname, '../src/renderer/index.html'), 'utf8');
-  const order = ['deepgram.js', 'app.js', 'capture-mode.js', 'provider-init.js'].map((f) =>
-    html.indexOf(`src="${f}"`),
-  );
+  const order = ['deepgram.js', 'app.js', 'capture-mode.js'].map((f) => html.indexOf(`src="${f}"`));
   assert.ok(
     order.every((i) => i >= 0),
     'all renderer scripts must be plain script tags',
   );
   assert.ok(
     order.every((v, i) => i === 0 || order[i - 1] < v),
-    `script order must be ${'deepgram.js < app.js < capture-mode.js < provider-init.js'}`,
+    `script order must be ${'deepgram.js < app.js < capture-mode.js'}`,
   );
 
   const preloadSource = fs.readFileSync(PRELOAD, 'utf8');

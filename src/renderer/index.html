@@ -515,9 +515,8 @@
 
     <script src="deepgram.js"></script>
     <script src="app.js"></script>
-    <!-- capture-mode / provider-init 必须在 app.js 之后、DOMContentLoaded 之前同步加载，
+    <!-- capture-mode 必须在 app.js 之后、DOMContentLoaded 之前同步加载，
          保证 init() 绑定的是覆盖后的 openSettings/saveSettings。 -->
     <script src="capture-mode.js" data-question-capture-mode></script>
-    <script src="provider-init.js" data-provider-init></script>
   </body>
 </html>
