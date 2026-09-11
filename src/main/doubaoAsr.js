@@ -177,7 +177,9 @@ class HeaderWebSocket extends EventEmitter {
       const host = this.url.hostname;
       const port = Number(this.url.port || 443);
       const key = randomBytes(16).toString('base64');
-      const expectedAccept = createHash('sha1').update(key + WS_GUID).digest('base64');
+      const expectedAccept = createHash('sha1')
+        .update(key + WS_GUID)
+        .digest('base64');
       let settled = false;
 
       const fail = (err) => {
@@ -383,8 +385,7 @@ class DoubaoAsrSession {
     this.appKey = options.appKey || '';
     this.accessKey = options.accessKey || '';
     this.resourceId = options.resourceId || 'volc.seedasr.sauc.duration';
-    this.wsUrl =
-      options.wsUrl || 'wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async';
+    this.wsUrl = options.wsUrl || 'wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_nostream';
     this.language = mapLanguage(options.language || 'zh');
     this.sampleRate = options.sampleRate || 16000;
     this.onTranscript = options.onTranscript || (() => {});
@@ -398,6 +399,11 @@ class DoubaoAsrSession {
     this.closing = false;
     this.seenDefinite = new Set();
     this.lastInterim = '';
+    this.finalTimeoutMs = options.finalTimeoutMs || 5000;
+    this.finalization = null;
+    this.finalResolve = null;
+    this.finalReject = null;
+    this.finalTimer = null;
   }
 
   async connect() {
@@ -423,6 +429,9 @@ class DoubaoAsrSession {
     ws.on('error', (e) => this.onState('error', e.message));
     ws.on('close', () => {
       this.connected = false;
+      if (this.finalization && this.finalReject) {
+        this._settleFinalization(new Error('Doubao WebSocket closed before the final transcript'));
+      }
       this.onState('closed', this.closing ? '' : 'Doubao WebSocket closed');
     });
 
@@ -478,11 +487,19 @@ class DoubaoAsrSession {
     }
     if (parsed.messageType === MSG_TYPE.SERVER_ERROR_RESPONSE) {
       const detail = parsed.error || '';
-      this.onState('error', `Doubao ASR error ${parsed.errorCode}: ${detail}`.trim());
+      const error = new Error(`Doubao ASR error ${parsed.errorCode}: ${detail}`.trim());
+      this.onState('error', error.message);
+      this._settleFinalization(error);
       return;
     }
     const result = parsed.payload && parsed.payload.result;
-    if (!result) return;
+    if (!result) {
+      if (parsed.isLast) {
+        this.onState('final_received', String(Date.now()));
+        this._settleFinalization();
+      }
+      return;
+    }
 
     const utterances = Array.isArray(result.utterances) ? result.utterances : [];
     let emittedFinal = false;
@@ -497,24 +514,70 @@ class DoubaoAsrSession {
     }
 
     const fullText = String(result.text || '').trim();
-    if (!emittedFinal && fullText && fullText !== this.lastInterim) {
+    if (!emittedFinal && fullText && (parsed.isLast || fullText !== this.lastInterim)) {
       this.lastInterim = fullText;
       this.onTranscript({ text: fullText, isFinal: !!parsed.isLast });
+    }
+    if (parsed.isLast) {
+      this.onState('final_received', String(Date.now()));
+      this._settleFinalization();
     }
   }
 
   close() {
+    if (this.finalization) return this.finalization;
     this.closing = true;
     if (this.ws && this.ws.open) {
+      this.finalization = new Promise((resolve, reject) => {
+        this.finalResolve = resolve;
+        this.finalReject = reject;
+      });
       const finalChunk = this.pending;
       this.pending = Buffer.alloc(0);
-      this.ws.send(buildAudioOnlyRequest(this.seq++, finalChunk, true));
-      setTimeout(() => {
-        if (this.ws) this.ws.close();
-      }, 700);
+      const sent = this.ws.send(buildAudioOnlyRequest(this.seq++, finalChunk, true));
+      if (!sent) {
+        this._settleFinalization(new Error('Doubao final audio packet could not be sent'));
+        return this.finalization;
+      }
+      this.onState('final_packet_sent', String(Date.now()));
+      this.finalTimer = setTimeout(() => {
+        const error = new Error(`Doubao final transcript timed out after ${this.finalTimeoutMs}ms`);
+        this.onState('error', error.message);
+        this._settleFinalization(error);
+      }, this.finalTimeoutMs);
     } else if (this.ws) {
       this.ws.close();
+      return Promise.resolve();
     }
+    return this.finalization || Promise.resolve();
+  }
+
+  _settleFinalization(error) {
+    if (!this.finalization) return;
+    if (this.finalTimer) clearTimeout(this.finalTimer);
+    this.finalTimer = null;
+    const resolve = this.finalResolve;
+    const reject = this.finalReject;
+    this.finalResolve = null;
+    this.finalReject = null;
+    if (this.ws) this.ws.close();
+    this.connected = false;
+    if (error) reject(error);
+    else resolve();
+  }
+
+  // 应用退出/窗口关闭时立即断开，不发送最终包、不等待服务端最终结果。
+  abort() {
+    this.closing = true;
+    if (this.finalTimer) clearTimeout(this.finalTimer);
+    this.finalTimer = null;
+    const reject = this.finalReject;
+    this.finalization = null;
+    this.finalResolve = null;
+    this.finalReject = null;
+    if (this.ws) this.ws.close();
+    this.connected = false;
+    if (reject) reject(new Error('Doubao session aborted'));
   }
 }
 

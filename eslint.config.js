@@ -53,6 +53,7 @@ const browserGlobals = {
   navigator: 'readonly',
   AudioContext: 'readonly',
   AudioWorkletNode: 'readonly',
+  Event: 'readonly',
   MediaStream: 'readonly',
   requestAnimationFrame: 'readonly',
   ...timers,

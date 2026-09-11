@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const { gzipSync, gunzipSync } = require('node:zlib');
-const { _protocol } = require('../src/main/doubaoAsr');
+const { DoubaoAsrSession, _protocol } = require('../src/main/doubaoAsr');
 
 function fakeServerResponse(payload, { seq = 1, last = false } = {}) {
   const body = gzipSync(Buffer.from(JSON.stringify(payload), 'utf8'));
@@ -81,4 +81,95 @@ test('WebSocket client frame is masked as required by RFC6455', () => {
   const decoded = Buffer.alloc(masked.length);
   for (let i = 0; i < masked.length; i += 1) decoded[i] = masked[i] ^ mask[i % 4];
   assert.equal(decoded.toString('utf8'), 'abc');
+});
+
+test('Doubao close waits for the server final response before closing the socket', async () => {
+  const sent = [];
+  let socketClosed = false;
+  const transcripts = [];
+  const session = new DoubaoAsrSession({
+    onTranscript: (result) => transcripts.push(result),
+  });
+  session.connected = true;
+  session.pending = Buffer.from([1, 2, 3, 4]);
+  session.ws = {
+    open: true,
+    send: (frame) => {
+      sent.push(frame);
+      return true;
+    },
+    close: () => {
+      socketClosed = true;
+    },
+  };
+
+  const closing = session.close();
+  assert.ok(closing instanceof Promise, 'close must expose finalization completion');
+  assert.equal(socketClosed, false);
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0][1], 0x23);
+  assert.deepEqual(gunzipSync(sent[0].subarray(12)), Buffer.from([1, 2, 3, 4]));
+
+  session._handleMessage(
+    fakeServerResponse(
+      {
+        result: {
+          text: '最后几个字不能丢',
+          utterances: [{ text: '最后几个字不能丢', definite: true }],
+        },
+      },
+      { last: true },
+    ),
+  );
+  await closing;
+
+  assert.equal(socketClosed, true);
+  assert.deepEqual(transcripts, [{ text: '最后几个字不能丢', isFinal: true }]);
+});
+
+test('Doubao final response promotes unchanged interim text to final', () => {
+  const transcripts = [];
+  const session = new DoubaoAsrSession({
+    onTranscript: (result) => transcripts.push(result),
+  });
+  session.lastInterim = '完整问题';
+
+  session._handleMessage(fakeServerResponse({ result: { text: '完整问题' } }, { last: true }));
+
+  assert.deepEqual(transcripts, [{ text: '完整问题', isFinal: true }]);
+});
+
+test('Doubao final response without text still completes finalization', async () => {
+  const session = new DoubaoAsrSession();
+  session.connected = true;
+  session.ws = {
+    open: true,
+    send: () => true,
+    close: () => {},
+  };
+
+  const closing = session.close();
+  session._handleMessage(fakeServerResponse({}, { last: true }));
+  await closing;
+});
+
+test('Doubao finalization times out and closes an unresponsive socket', async () => {
+  let socketClosed = false;
+  const states = [];
+  const session = new DoubaoAsrSession({
+    finalTimeoutMs: 10,
+    onState: (state, info) => states.push({ state, info }),
+  });
+  session.connected = true;
+  session.ws = {
+    open: true,
+    send: () => true,
+    close: () => {
+      socketClosed = true;
+    },
+  };
+
+  await assert.rejects(session.close(), /timed out after 10ms/);
+  assert.equal(socketClosed, true);
+  assert.ok(states.some(({ state }) => state === 'error'));
 });

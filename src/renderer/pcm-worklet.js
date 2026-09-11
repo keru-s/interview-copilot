@@ -7,6 +7,29 @@ class PCMWorklet extends AudioWorkletProcessor {
     this._count = 0;
     // sampleRate 是 AudioWorkletGlobalScope 的全局变量
     this._target = Math.max(1024, Math.floor(sampleRate * 0.1));
+    this.port.onmessage = (event) => {
+      if (event.data && event.data.type === 'flush') {
+        this._emitPending();
+        this.port.postMessage({ type: 'flushed' });
+      }
+    };
+  }
+
+  _emitPending() {
+    if (!this._count) return;
+    const merged = new Int16Array(this._count);
+    let o = 0;
+    for (const frame of this._buf) {
+      for (let i = 0; i < frame.length; i++) {
+        let s = frame[i];
+        if (s > 1) s = 1;
+        else if (s < -1) s = -1;
+        merged[o++] = s < 0 ? s * 0x8000 : s * 0x7fff;
+      }
+    }
+    this._buf = [];
+    this._count = 0;
+    this.port.postMessage(merged.buffer, [merged.buffer]);
   }
 
   process(inputs) {
@@ -17,19 +40,7 @@ class PCMWorklet extends AudioWorkletProcessor {
       this._count += ch.length;
 
       if (this._count >= this._target) {
-        const merged = new Int16Array(this._count);
-        let o = 0;
-        for (const frame of this._buf) {
-          for (let i = 0; i < frame.length; i++) {
-            let s = frame[i];
-            if (s > 1) s = 1;
-            else if (s < -1) s = -1;
-            merged[o++] = s < 0 ? s * 0x8000 : s * 0x7fff;
-          }
-        }
-        this._buf = [];
-        this._count = 0;
-        this.port.postMessage(merged.buffer, [merged.buffer]);
+        this._emitPending();
       }
     }
     return true;

@@ -1,51 +1,6 @@
 'use strict';
 
-/* global window, document */
-
 const { contextBridge, ipcRenderer } = require('electron');
-const { DoubaoAsrSession } = require('./doubaoAsr');
-
-const doubaoSessions = new Map();
-const doubaoListeners = new Set();
-
-function emitDoubao(sessionId, payload) {
-  for (const cb of doubaoListeners) {
-    try {
-      cb({ sessionId, ...payload });
-    } catch (_e) {}
-  }
-}
-
-async function startDoubaoSession(options = {}) {
-  const sessionId = String(options.sessionId || '');
-  if (!sessionId) throw new Error('Doubao sessionId is required');
-
-  const previous = doubaoSessions.get(sessionId);
-  if (previous) previous.close();
-
-  const session = new DoubaoAsrSession({
-    apiKey: options.apiKey,
-    appKey: options.appKey,
-    accessKey: options.accessKey,
-    resourceId: options.resourceId,
-    wsUrl: options.wsUrl,
-    language: options.language,
-    sampleRate: options.sampleRate,
-    onTranscript: (result) => emitDoubao(sessionId, { type: 'transcript', ...result }),
-    onState: (state, info) => emitDoubao(sessionId, { type: 'state', state, info }),
-  });
-  doubaoSessions.set(sessionId, session);
-  try {
-    await session.connect();
-    return { ok: true };
-  } catch (e) {
-    doubaoSessions.delete(sessionId);
-    try {
-      session.close();
-    } catch (_e) {}
-    throw e;
-  }
-}
 
 contextBridge.exposeInMainWorld('api', {
   // 设置
@@ -65,29 +20,17 @@ contextBridge.exposeInMainWorld('api', {
   getScreenPermission: () => ipcRenderer.invoke('get-screen-permission'),
   openScreenSettings: () => ipcRenderer.invoke('open-screen-settings'),
 
-  // 豆包 ASR：在 preload/Node 侧发 WebSocket，以便携带自定义鉴权 Header。
-  doubaoSttStart: (options) => startDoubaoSession(options),
-  doubaoSttSend: ({ sessionId, buffer }) => {
-    const session = doubaoSessions.get(sessionId);
-    if (!session) return false;
-    session.send(buffer);
-    return true;
-  },
-  doubaoSttClose: (sessionId) => {
-    const session = doubaoSessions.get(sessionId);
-    if (!session) return false;
-    session.close();
-    doubaoSessions.delete(sessionId);
-    return true;
-  },
-  onDoubaoSttEvent: (cb) => {
-    doubaoListeners.add(cb);
-    return () => doubaoListeners.delete(cb);
-  },
+  // 豆包 ASR：会话在主进程运行（安全隔离下 preload 不能加载 Node 侧模块），
+  // 这里只做消息转发；转写/状态事件经 doubao-stt-event 推回页面。
+  doubaoSttStart: (options) => ipcRenderer.invoke('doubao-stt-start', options),
+  doubaoSttSend: (payload) => ipcRenderer.invoke('doubao-stt-send', payload),
+  doubaoSttClose: (sessionId) => ipcRenderer.invoke('doubao-stt-close', sessionId),
+  onDoubaoSttEvent: (cb) => sub('doubao-stt-event', cb),
 
   // 生成答案
   generateAnswer: (payload) => ipcRenderer.send('generate-answer', payload),
   cancelGenerate: () => ipcRenderer.send('cancel-generate'),
+  listModels: (payload) => ipcRenderer.invoke('list-models', payload),
 
   // 事件订阅
   onHotkeyGenerate: (cb) => {
@@ -109,21 +52,3 @@ function sub(channel, cb) {
   ipcRenderer.on(channel, h);
   return () => ipcRenderer.removeListener(channel, h);
 }
-
-// Load provider extensions after app.js has registered its normal DOMContentLoaded init.
-window.addEventListener('DOMContentLoaded', () => {
-  setTimeout(() => {
-    if (!document.querySelector('script[data-question-capture-mode]')) {
-      const capture = document.createElement('script');
-      capture.src = 'capture-mode.js';
-      capture.dataset.questionCaptureMode = 'true';
-      document.body.appendChild(capture);
-    }
-    if (!document.querySelector('script[data-provider-init]')) {
-      const initFix = document.createElement('script');
-      initFix.src = 'provider-init.js';
-      initFix.dataset.providerInit = 'true';
-      document.body.appendChild(initFix);
-    }
-  }, 0);
-});
