@@ -316,7 +316,7 @@ async function handleSystemCaptureError(e, sysVal) {
     const status = await window.api.getScreenPermission();
     if (status !== 'granted') {
       toast(
-        '采集系统声音需要「屏幕录制」权限。正在打开系统设置 —— 请勾选「Electron」后重启应用。',
+        '采集系统声音需要「屏幕录制」权限。正在打开系统设置 —— 请勾选「Real Time Interview Copilot」（开发环境为「Electron」）后重启应用。',
         true,
       );
       setStatus('请授予屏幕录制权限并重启', 'error');
