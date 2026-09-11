@@ -1,6 +1,7 @@
 'use strict';
 
 /* global startListening:writable, openSettings:writable, saveSettings:writable */
+/* global scheduleAuto:writable, maybeAutoAnswer:writable */
 /* global $, state, renderHotkeyHint, toast, setStatus, handleSystemCaptureError */
 /* global getMicStream, getSystemStream, handleTranscript, wireStream, clearEmptyState */
 /* global addDaySeparator, setLive, setListeningUI, listInputDevices, stopListening */
@@ -18,6 +19,20 @@ let captureStartIndex = null;
 let captureStartedListening = false;
 let captureFinishing = false;
 let doubaoSeq = 0;
+
+// 问题采集模式下抑制自动作答：问题边界完全以第二次快捷键为准。
+// 双保险：scheduleAuto 不再挂起新计时器；maybeAutoAnswer 兜底拦截进入采集前已挂起的计时器，
+// 避免面试官中途停顿触发提前作答、第二次快捷键又因 generating 被忽略的竞态。
+const baseScheduleAuto = scheduleAuto;
+scheduleAuto = function (role) {
+  if (captureStartIndex !== null) return;
+  baseScheduleAuto(role);
+};
+const baseMaybeAutoAnswer = maybeAutoAnswer;
+maybeAutoAnswer = function () {
+  if (captureStartIndex !== null) return;
+  baseMaybeAutoAnswer();
+};
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -192,7 +207,15 @@ openSettings = function () {
 
 saveSettings = async function () {
   ensureCaptureSettingsUI();
-  const prevCaptureMic = state.settings.captureCandidateMic !== false;
+  // 影响音频管线的 STT 设置：监听中发生变化时需要重建管线（stop + restart）。
+  const prevPipeline = {
+    captureMic: state.settings.captureCandidateMic !== false,
+    sttProvider: state.settings.sttProvider || 'deepgram',
+    doubaoApiKey: state.settings.doubaoApiKey || '',
+    doubaoAppKey: state.settings.doubaoAppKey || '',
+    doubaoAccessKey: state.settings.doubaoAccessKey || '',
+    doubaoResourceId: state.settings.doubaoResourceId || 'volc.seedasr.sauc.duration',
+  };
   const extra = {
     sttProvider: $('setSttProvider').value || 'deepgram',
     doubaoApiKey: $('setDoubaoApiKey').value.trim(),
@@ -204,8 +227,15 @@ saveSettings = async function () {
   await baseSaveSettings();
   state.settings = await window.api.saveSettings(extra);
   applyCaptureSettingsUI();
-  // 监听中切换候选人麦克风时重建音频管线，避免“界面已关闭但实际仍在采集”。
-  if (state.listening && prevCaptureMic !== extra.captureCandidateMic) {
+  // 避免“界面显示已切换，但实际仍在用旧配置采集/转写”。
+  const pipelineChanged =
+    prevPipeline.captureMic !== extra.captureCandidateMic ||
+    prevPipeline.sttProvider !== extra.sttProvider ||
+    prevPipeline.doubaoApiKey !== extra.doubaoApiKey ||
+    prevPipeline.doubaoAppKey !== extra.doubaoAppKey ||
+    prevPipeline.doubaoAccessKey !== extra.doubaoAccessKey ||
+    prevPipeline.doubaoResourceId !== extra.doubaoResourceId;
+  if (state.listening && pipelineChanged) {
     await stopListening();
     await startListening();
   }

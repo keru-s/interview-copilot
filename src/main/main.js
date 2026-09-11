@@ -137,6 +137,13 @@ function createWindow() {
     });
   }
 
+  // 渲染层订阅可能晚于启动时的热键注册失败事件，加载完成后补发一次。
+  mainWindow.webContents.on('did-finish-load', () => {
+    if (lastHotkeyError && mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('hotkey-error', lastHotkeyError);
+    }
+  });
+
   // 截图模式：注入一段演示对话，截取窗口写到 assets/screenshot.png 后退出（仅用于生成 README 图）。
   if (process.env.INTERVIEW_SCREENSHOT) {
     mainWindow.webContents.on('did-finish-load', () => {
@@ -246,38 +253,46 @@ function setupDisplayMediaLoopback() {
   );
 }
 
-// 当前生效的热键，用于新热键注册失败时回滚。
+// 当前生效的热键与最近一次注册失败信息（启动失败时渲染层尚未订阅，加载完成后补发）。
 let activeHotkey = null;
+let lastHotkeyError = null;
 
 const onHotkey = () => {
   if (mainWindow) mainWindow.webContents.send('hotkey-generate');
 };
 
+function notifyHotkeyError(payload) {
+  lastHotkeyError = payload;
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('hotkey-error', payload);
+  }
+}
+
+function tryRegisterHotkey(key) {
+  try {
+    return globalShortcut.register(key, onHotkey);
+  } catch (_e) {
+    return false;
+  }
+}
+
+// 启动时注册持久化的热键；失败时回退到默认热键并把修复写回设置。
 function registerHotkey() {
   const key = currentSettings.hotkey || 'Control+A';
-  const previous = activeHotkey;
   globalShortcut.unregisterAll();
   activeHotkey = null;
-  try {
-    if (globalShortcut.register(key, onHotkey)) {
-      activeHotkey = key;
-      return true;
-    }
-    console.warn(`热键 ${key} 注册失败（可能被占用或格式非法）`);
-  } catch (e) {
-    console.error('注册热键出错:', e);
+  if (tryRegisterHotkey(key)) {
+    activeHotkey = key;
+    return true;
   }
-  // 注册失败：回滚到上一个可用热键，并通知渲染层提示用户。
-  if (previous && previous !== key) {
-    try {
-      if (globalShortcut.register(previous, onHotkey)) activeHotkey = previous;
-    } catch (_e) {
-      /* 上一个热键也注册不上就只能放弃 */
-    }
+  console.warn(`热键 ${key} 注册失败（可能被占用或格式非法）`);
+  let fallback = null;
+  if (key !== 'Control+A' && tryRegisterHotkey('Control+A')) {
+    fallback = 'Control+A';
+    activeHotkey = fallback;
+    currentSettings = settingsStore.save({ hotkey: fallback });
   }
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send('hotkey-error', { key, fallback: activeHotkey });
-  }
+  notifyHotkeyError({ key, fallback });
   return false;
 }
 
@@ -286,8 +301,20 @@ function registerHotkey() {
 ipcMain.handle('get-settings', () => currentSettings);
 
 ipcMain.handle('save-settings', (_e, partial) => {
-  currentSettings = settingsStore.save(partial || {});
-  registerHotkey();
+  const patch = { ...(partial || {}) };
+  // 热键先验后存：新热键注册成功才持久化；失败则旧热键保持生效并通知渲染层。
+  if (patch.hotkey && patch.hotkey !== activeHotkey) {
+    if (tryRegisterHotkey(patch.hotkey)) {
+      if (activeHotkey) globalShortcut.unregister(activeHotkey);
+      activeHotkey = patch.hotkey;
+      lastHotkeyError = null;
+    } else {
+      console.warn(`热键 ${patch.hotkey} 注册失败（可能被占用或格式非法）`);
+      notifyHotkeyError({ key: patch.hotkey, fallback: activeHotkey });
+      delete patch.hotkey;
+    }
+  }
+  currentSettings = settingsStore.save(patch);
   return currentSettings;
 });
 
