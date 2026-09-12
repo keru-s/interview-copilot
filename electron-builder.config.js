@@ -13,6 +13,9 @@ module.exports = {
   files: ['src/**/*', 'package.json'],
   mac: {
     category: 'public.app-category.productivity',
+    // Hardened Runtime 下必须显式声明 audio-input，否则麦克风权限被静默拒绝（不弹窗、不上列表）。
+    entitlements: 'build/entitlements.mac.plist',
+    entitlementsInherit: 'build/entitlements.mac.plist',
     target: [
       {
         target: 'dmg',
