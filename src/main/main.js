@@ -108,6 +108,7 @@ function createWindow() {
               'getSettings', 'saveSettings', 'generateAnswer', 'listModels',
               'doubaoSttStart', 'doubaoSttSend', 'doubaoSttClose', 'onDoubaoSttEvent',
               'onHotkeyGenerate', 'clearHotkeyGenerateListeners', 'onHotkeyError',
+              'openMicSettings',
             ];
             return {
               hasApi: !!api,
@@ -593,6 +594,15 @@ ipcMain.handle('open-screen-settings', () => {
   if (process.platform === 'darwin') {
     shell.openExternal(
       'x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture',
+    );
+  }
+  return true;
+});
+
+ipcMain.handle('open-mic-settings', () => {
+  if (process.platform === 'darwin') {
+    shell.openExternal(
+      'x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone',
     );
   }
   return true;

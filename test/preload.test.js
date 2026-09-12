@@ -70,6 +70,7 @@ test('preload loads under sandbox restrictions and exposes the bridge API', () =
     'onHotkeyGenerate',
     'clearHotkeyGenerateListeners',
     'onHotkeyError',
+    'openMicSettings',
     'doubaoSttStart',
     'doubaoSttSend',
     'doubaoSttClose',

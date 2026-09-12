@@ -5,7 +5,7 @@
 /* global $, state, renderHotkeyHint, toast, setStatus, handleSystemCaptureError */
 /* global getMicStream, getSystemStream, handleTranscript, wireStream, clearEmptyState */
 /* global addDaySeparator, setLive, setListeningUI, listInputDevices, stopListening */
-/* global triggerGenerate, sttPipelineConfig, rebuildPipelineIfChanged */
+/* global triggerGenerate, sttPipelineConfig, rebuildPipelineIfChanged, ensureMicOrGuide */
 
 // Optional two-computer question-capture mode layered on top of the existing app.
 // The existing hotkey remains user-configurable in Settings, but its behavior becomes:
@@ -298,7 +298,7 @@ startListening = async function () {
   try {
     const sysVal = $('sysSelect').value;
     const needsMicPermission = captureCandidate || sysVal !== '__loopback__';
-    if (needsMicPermission) await window.api.ensureMicPermission();
+    if (needsMicPermission) await ensureMicOrGuide();
 
     let micStream = null;
     if (captureCandidate) micStream = await getMicStream($('micSelect').value);

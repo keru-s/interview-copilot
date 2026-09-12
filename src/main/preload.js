@@ -19,6 +19,7 @@ contextBridge.exposeInMainWorld('api', {
   ensureMicPermission: () => ipcRenderer.invoke('ensure-mic-permission'),
   getScreenPermission: () => ipcRenderer.invoke('get-screen-permission'),
   openScreenSettings: () => ipcRenderer.invoke('open-screen-settings'),
+  openMicSettings: () => ipcRenderer.invoke('open-mic-settings'),
 
   // 豆包 ASR：会话在主进程运行（安全隔离下 preload 不能加载 Node 侧模块），
   // 这里只做消息转发；转写/状态事件经 doubao-stt-event 推回页面。

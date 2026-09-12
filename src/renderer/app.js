@@ -314,6 +314,15 @@ async function getMicStream(deviceId) {
   });
 }
 
+// 麦克风权限未授予时引导用户去系统设置 —— TCC 只弹一次授权窗，被拒后只能手动开启。
+async function ensureMicOrGuide() {
+  const ok = await window.api.ensureMicPermission();
+  if (ok) return;
+  toast('麦克风权限未授予。请在系统设置 → 隐私与安全性 → 麦克风 中允许本应用后重试。', true);
+  window.api.openMicSettings();
+  throw new Error('麦克风权限未授予');
+}
+
 async function handleSystemCaptureError(e, sysVal) {
   if (sysVal === '__loopback__') {
     const status = await window.api.getScreenPermission();
@@ -402,7 +411,7 @@ async function startListening() {
 
   setStatus('初始化…');
   try {
-    await window.api.ensureMicPermission();
+    await ensureMicOrGuide();
 
     const micStream = await getMicStream($('micSelect').value);
     let sysStream = null;
