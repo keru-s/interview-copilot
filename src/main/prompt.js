@@ -1,6 +1,9 @@
 'use strict';
 
-// 纯函数：构造作答 / 问题提取的提示词。无 Electron 依赖，便于单测。
+// 纯函数为主：构造作答 / 问题提取的提示词。Knowledge Base 存在时，
+// 只通过本地 BM25 注入与当前问题相关的片段；弱命中则不注入资料，让通用问题直接由模型回答。
+
+const store = require('./store');
 
 function buildPrompt({
   question,
@@ -17,6 +20,23 @@ function buildPrompt({
       : answerLanguage === 'en'
         ? 'Answer in English.'
         : '使用与问题相同的语言作答。';
+
+  const q = (question || '').trim();
+  const recentTranscript = (transcript || '').split('\n').slice(-6).join('\n');
+
+  // main.js 旧逻辑仍会把全量 context 传进来。这里在真正组 Prompt 前做最后一道检索门控：
+  // 有 KB 文档 → 只使用 BM25 Top-K；没有明显命中 → 空 context；
+  // 没有 KB 文档 → 保留显式传入 context，方便独立调用/单测兼容。
+  let effectiveContext = context || '';
+  let retrieval = null;
+  if (store.summary().length > 0) {
+    retrieval = store.search(q || recentTranscript, {
+      topK: 5,
+      minScore: 0.75,
+      maxChars: 10000,
+    });
+    effectiveContext = retrieval.context;
+  }
 
   const lines = [
     '你是正在参加面试的候选人本人。下面会给出面试现场的对话片段 / 问题，以及可能相关的个人资料/知识库内容。',
@@ -46,9 +66,10 @@ function buildPrompt({
   const systemInstruction = lines.join('\n');
 
   const parts = [];
-  if (context) parts.push(`【可参考的个人资料 / 知识库】\n${context}\n`);
+  if (effectiveContext) {
+    parts.push(`【与当前问题相关的个人资料 / 知识库片段】\n${effectiveContext}\n`);
+  }
 
-  const q = (question || '').trim();
   if (q) {
     if (transcript) {
       parts.push(
@@ -71,7 +92,7 @@ function buildPrompt({
     parts.push('\n你的回答：');
   }
 
-  return { systemInstruction, userText: parts.join('\n') };
+  return { systemInstruction, userText: parts.join('\n'), retrieval };
 }
 
 // 问题提取（只看最近几轮）

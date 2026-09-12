@@ -270,6 +270,7 @@ select:focus {
 
 /* ---------------- transcript ---------------- */
 .transcript-card {
+  flex: 1;
   min-height: 0;
 }
 .transcript-body {

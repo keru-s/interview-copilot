@@ -25,7 +25,7 @@ jobs:
           cache: npm
       - run: npm ci
       - name: Build & publish installers
-        run: npx --no-install electron-builder --publish always
+        run: npx --no-install electron-builder --config electron-builder.config.js --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Upload build artifacts (backup)

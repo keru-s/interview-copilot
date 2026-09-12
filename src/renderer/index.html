@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -33,28 +33,28 @@
         <div class="brand-text">
           <div class="brand-title">Real Time Interview Copilot</div>
           <div class="brand-status">
-            <span class="dot" id="statusDot"></span><span id="statusText">Idle</span>
+            <span class="dot" id="statusDot"></span><span id="statusText">空闲</span>
           </div>
         </div>
       </div>
 
       <div class="controls">
         <label class="field">
-          <span>Your microphone</span>
+          <span>你的麦克风</span>
           <select id="micSelect"></select>
         </label>
         <label class="field">
-          <span>Interviewer audio</span>
+          <span>面试官声音</span>
           <select id="sysSelect">
-            <option value="__loopback__">System Audio (Loopback)</option>
+            <option value="__loopback__">系统声音（回环）</option>
           </select>
         </label>
         <label class="field">
-          <span>Transcript language</span>
+          <span>转写语言</span>
           <select id="langSelect">
             <option value="en-US">English</option>
             <option value="zh">中文</option>
-            <option value="multi">Multilingual (auto)</option>
+            <option value="multi">多语言（自动）</option>
             <option value="ja">日本語</option>
             <option value="ko">한국어</option>
             <option value="es">Español</option>
@@ -69,9 +69,9 @@
           <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
             <path d="M8 5v14l11-7z" />
           </svg>
-          <span class="label">Start Listening</span>
+          <span class="label">开始监听</span>
         </button>
-        <button id="settingsBtn" class="btn icon-btn" title="Settings">
+        <button id="settingsBtn" class="btn icon-btn" title="设置">
           <svg
             viewBox="0 0 24 24"
             width="18"
@@ -92,54 +92,49 @@
     </header>
 
     <main class="layout">
-      <!-- Left: live transcript -->
-      <section class="card transcript-card">
+      <!-- Left: answer -->
+      <div class="card answer-card">
         <div class="card-head">
           <div class="card-title">
             <svg
               viewBox="0 0 24 24"
-              width="16"
-              height="16"
+              width="15"
+              height="15"
               fill="none"
               stroke="currentColor"
               stroke-width="2"
               stroke-linecap="round"
               stroke-linejoin="round"
             >
-              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+              <rect x="3" y="11" width="18" height="11" rx="2" />
+              <path d="M7 11V7a5 5 0 0 1 10 0v4" />
             </svg>
-            <span>Live Transcript</span>
+            <span>答案</span>
           </div>
-          <button id="clearTranscript" class="link-btn">Clear</button>
+          <span id="charCounter" class="counter">0 / 500 字</span>
         </div>
-        <div class="card-body transcript-body">
-          <div id="transcript" class="transcript"></div>
-          <div id="liveIndicator" class="live-indicator hidden">
-            <span class="bars"><i></i><i></i><i></i></span> Transcribing live audio…
-          </div>
+        <div class="card-body answer-body">
+          <div id="answer" class="answer" placeholder="答案将显示在这里…"></div>
         </div>
-      </section>
+      </div>
 
       <!-- Right column -->
       <section class="right-col">
         <div class="card">
           <div class="card-head">
-            <div class="card-title"><span>Current Question</span></div>
+            <div class="card-title"><span>当前问题</span></div>
             <div class="q-head-right">
-              <label
-                class="auto-toggle"
-                title="Answer automatically when the interviewer finishes a question"
-              >
-                <input type="checkbox" id="autoAnswer" /> Auto-answer
+              <label class="auto-toggle" title="面试官问完问题后自动作答">
+                <input type="checkbox" id="autoAnswer" /> 自动作答
               </label>
-              <span class="kbd-hint">Press <span id="hotkeyHint"></span> to answer</span>
+              <span class="kbd-hint">按 <span id="hotkeyHint"></span> 生成答案</span>
             </div>
           </div>
           <div class="card-body">
             <textarea
               id="questionBox"
               class="question-box"
-              placeholder="Leave empty — press ⌃A to pull the question from the last few turns and answer automatically. Or type a question to answer here…"
+              placeholder="留空 —— 按 ⌃A 从最近几轮对话中提取问题并自动作答；也可以直接在这里输入问题…"
             ></textarea>
             <div class="action-row">
               <button id="generateBtn" class="btn primary">
@@ -157,40 +152,42 @@
                     d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3z"
                   />
                 </svg>
-                <span>Generate Answer</span>
+                <span>生成答案</span>
               </button>
               <button id="cancelBtn" class="btn ghost" disabled>
                 <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor">
                   <rect x="5" y="5" width="14" height="14" rx="2" />
                 </svg>
-                <span>Stop</span>
+                <span>停止</span>
               </button>
             </div>
           </div>
         </div>
 
-        <div class="card answer-card">
+        <div class="card transcript-card">
           <div class="card-head">
             <div class="card-title">
               <svg
                 viewBox="0 0 24 24"
-                width="15"
-                height="15"
+                width="16"
+                height="16"
                 fill="none"
                 stroke="currentColor"
                 stroke-width="2"
                 stroke-linecap="round"
                 stroke-linejoin="round"
               >
-                <rect x="3" y="11" width="18" height="11" rx="2" />
-                <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
               </svg>
-              <span>Answer</span>
+              <span>实时转写</span>
             </div>
-            <span id="charCounter" class="counter">0 / 500 chars</span>
+            <button id="clearTranscript" class="link-btn">清空</button>
           </div>
-          <div class="card-body answer-body">
-            <div id="answer" class="answer" placeholder="Your answer will appear here…"></div>
+          <div class="card-body transcript-body">
+            <div id="transcript" class="transcript"></div>
+            <div id="liveIndicator" class="live-indicator hidden">
+              <span class="bars"><i></i><i></i><i></i></span> 正在转写实时音频…
+            </div>
           </div>
         </div>
 
@@ -210,7 +207,7 @@
                 <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
                 <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
               </svg>
-              <span>Knowledge Base</span>
+              <span>知识库</span>
             </div>
             <div class="doc-actions">
               <button id="uploadBtn" class="btn tiny">
@@ -228,10 +225,10 @@
                   <polyline points="17 8 12 3 7 8" />
                   <line x1="12" y1="3" x2="12" y2="15" />
                 </svg>
-                Upload
+                上传
               </button>
-              <button id="pasteBtn" class="link-btn">Paste text</button>
-              <button id="clearDocsBtn" class="link-btn">Clear</button>
+              <button id="pasteBtn" class="link-btn">粘贴文本</button>
+              <button id="clearDocsBtn" class="link-btn">清空</button>
             </div>
           </div>
           <div class="card-body">
@@ -245,7 +242,7 @@
     <div id="settingsModal" class="modal hidden">
       <div class="modal-card">
         <div class="modal-head">
-          <h2>Settings</h2>
+          <h2>设置</h2>
           <button id="closeSettings" class="link-btn">✕</button>
         </div>
         <div class="modal-body">
@@ -254,41 +251,114 @@
             <input type="password" id="setDeepgram" placeholder="dg_…" />
           </label>
           <label class="setting">
-            <span>Answer provider</span>
+            <span>作答服务商</span>
             <select id="setProvider">
               <option value="deepseek">DeepSeek</option>
               <option value="gemini">Gemini</option>
               <option value="openai">OpenAI</option>
-              <option value="ollama">Ollama (local)</option>
+              <option value="kimi">Kimi Code（会员订阅）</option>
+              <option value="ollama">Ollama（本地）</option>
+              <option value="custom">自定义（OpenAI 兼容）</option>
             </select>
           </label>
-          <label class="setting">
+          <label class="setting" data-llm-provider="deepseek">
             <span>DeepSeek API Key</span>
             <input type="password" id="setDeepseek" placeholder="sk-…" />
           </label>
-          <label class="setting">
-            <span>DeepSeek model</span>
-            <input type="text" id="setDeepseekModel" placeholder="deepseek-chat" />
+          <label class="setting" data-llm-provider="deepseek">
+            <span>DeepSeek 模型</span>
+            <input type="text" id="setDeepseekModel" placeholder="deepseek-flash" />
+            <select
+              id="dsModelPicker"
+              class="model-picker"
+              data-model-picker="deepseek"
+              hidden
+            ></select>
           </label>
-          <label class="setting">
+          <label class="setting" data-llm-provider="deepseek">
+            <span>思考模式（关闭后回答更快）</span>
+            <select id="setDeepseekThinking">
+              <option value="disabled">关闭（最快，推荐面试场景）</option>
+              <option value="low">低</option>
+              <option value="high">高</option>
+              <option value="max">最高（最慢，质量最好）</option>
+            </select>
+          </label>
+          <button
+            type="button"
+            class="link-btn"
+            data-llm-provider="deepseek"
+            data-refresh-models="deepseek"
+          >
+            刷新模型列表
+          </button>
+          <label class="setting" data-llm-provider="gemini">
             <span>Gemini API Key</span>
             <input type="password" id="setGemini" placeholder="AI…" />
           </label>
-          <label class="setting">
-            <span>Gemini model ID</span>
+          <label class="setting" data-llm-provider="gemini">
+            <span>Gemini 模型 ID</span>
             <input type="text" id="setModel" placeholder="gemini-2.5-flash" />
           </label>
-          <label class="setting">
+          <label class="setting" data-llm-provider="openai">
             <span>OpenAI API Key</span>
             <input type="password" id="setOpenai" placeholder="sk-…" />
           </label>
-          <label class="setting">
-            <span>OpenAI model</span>
+          <label class="setting" data-llm-provider="openai">
+            <span>OpenAI 模型</span>
             <input type="text" id="setOpenaiModel" placeholder="gpt-4o-mini" />
+            <select
+              id="oaModelPicker"
+              class="model-picker"
+              data-model-picker="openai"
+              hidden
+            ></select>
           </label>
-          <div class="setting-row">
+          <button
+            type="button"
+            class="link-btn"
+            data-llm-provider="openai"
+            data-refresh-models="openai"
+          >
+            刷新模型列表
+          </button>
+          <label class="setting" data-llm-provider="kimi">
+            <span>Kimi Code API Key</span>
+            <input type="password" id="setKimi" placeholder="sk-…" />
+          </label>
+          <label class="setting" data-llm-provider="kimi">
+            <span>Kimi Code 模型</span>
+            <input type="text" id="setKimiModel" placeholder="k3-256k" />
+            <select
+              id="kimiModelPicker"
+              class="model-picker"
+              data-model-picker="kimi"
+              hidden
+            ></select>
+          </label>
+          <label class="setting" data-llm-provider="kimi">
+            <span>思考强度（越低越快）</span>
+            <select id="setKimiEffort">
+              <option value="low">低（最快，推荐面试场景）</option>
+              <option value="high">高</option>
+              <option value="max">最高（最慢，质量最好）</option>
+            </select>
+          </label>
+          <button
+            type="button"
+            class="link-btn"
+            data-llm-provider="kimi"
+            data-refresh-models="kimi"
+          >
+            刷新模型列表
+          </button>
+          <p class="note" data-llm-provider="kimi">
+            使用 Kimi Code 控制台创建的 API Key（会员订阅，走 api.kimi.com/coding），与 Kimi
+            开放平台（api.moonshot.cn）的 Key 不通用。
+          </p>
+          <div class="setting-row" data-llm-provider="ollama">
             <label class="setting">
-              <span>Ollama base URL (local)</span>
+              <span>Ollama 基础 URL（本地）</span>
               <input
                 type="text"
                 id="setOllamaURL"
@@ -296,17 +366,63 @@
               />
             </label>
             <label class="setting">
-              <span>Ollama model</span>
+              <span>Ollama 模型</span>
               <input type="text" id="setOllamaModel" placeholder="llama3.1" />
+              <select
+                id="olModelPicker"
+                class="model-picker"
+                data-model-picker="ollama"
+                hidden
+              ></select>
             </label>
           </div>
+          <button
+            type="button"
+            class="link-btn"
+            data-llm-provider="ollama"
+            data-refresh-models="ollama"
+          >
+            刷新模型列表
+          </button>
+          <label class="setting" data-llm-provider="custom">
+            <span>自定义请求地址（OpenAI 兼容 Chat Completions）</span>
+            <input
+              type="text"
+              id="setCustomURL"
+              placeholder="https://example.com/v1/chat/completions"
+            />
+          </label>
+          <div class="setting-row" data-llm-provider="custom">
+            <label class="setting">
+              <span>自定义 API Key（可留空）</span>
+              <input type="password" id="setCustomKey" placeholder="sk-…" />
+            </label>
+            <label class="setting">
+              <span>自定义模型</span>
+              <input type="text" id="setCustomModel" placeholder="my-model" />
+              <select
+                id="cuModelPicker"
+                class="model-picker"
+                data-model-picker="custom"
+                hidden
+              ></select>
+            </label>
+          </div>
+          <button
+            type="button"
+            class="link-btn"
+            data-llm-provider="custom"
+            data-refresh-models="custom"
+          >
+            刷新模型列表
+          </button>
           <div class="setting-row">
             <label class="setting">
-              <span>Transcript language</span>
+              <span>转写语言</span>
               <select id="setSttLang">
                 <option value="en-US">English</option>
                 <option value="zh">中文</option>
-                <option value="multi">Multilingual (auto)</option>
+                <option value="multi">多语言（自动）</option>
                 <option value="ja">日本語</option>
                 <option value="ko">한국어</option>
                 <option value="es">Español</option>
@@ -318,9 +434,9 @@
               </select>
             </label>
             <label class="setting">
-              <span>Answer language</span>
+              <span>答案语言</span>
               <select id="setAnswerLang">
-                <option value="auto">Follow question</option>
+                <option value="auto">跟随问题</option>
                 <option value="en">English</option>
                 <option value="zh">中文</option>
               </select>
@@ -328,47 +444,42 @@
           </div>
           <div class="setting-row">
             <label class="setting">
-              <span>Max characters</span>
+              <span>答案字数上限</span>
               <input type="number" id="setMaxChars" min="50" max="2000" />
             </label>
             <label class="setting">
-              <span>Trigger hotkey</span>
+              <span>触发快捷键</span>
               <input type="text" id="setHotkey" placeholder="Control+A" />
             </label>
           </div>
           <label class="setting">
-            <span
-              >Job description (JD) — answers are tailored to this role (saved & persisted)</span
-            >
+            <span>职位描述（JD）—— 答案将围绕该岗位定制（保存后持久化）</span>
             <textarea
               id="setJD"
               rows="6"
-              placeholder="Paste the job description here, or click Upload JD file…"
+              placeholder="把职位描述粘贴到这里，或点击「上传 JD 文件」…"
             ></textarea>
           </label>
           <div class="doc-actions" style="margin-top: -6px">
-            <button id="uploadJD" class="btn tiny">⬆ Upload JD file</button>
-            <button id="clearJD" class="link-btn">Clear JD</button>
+            <button id="uploadJD" class="btn tiny">⬆ 上传 JD 文件</button>
+            <button id="clearJD" class="link-btn">清空 JD</button>
           </div>
           <label class="setting">
-            <span
-              >Interview profile / answering style (injected into the system prompt, highest
-              priority)</span
-            >
+            <span>面试背景 / 作答风格（注入系统提示，优先级最高）</span>
             <textarea
               id="setProfile"
               rows="8"
-              placeholder="e.g. You are interviewing for a Google FDE Manager role; be specific, give numbers and trade-offs, own the decision…"
+              placeholder="例如：你正在面试 Google FDE Manager 岗位；回答要具体，给出数字与取舍，敢于拍板…"
             ></textarea>
           </label>
           <p class="note">
-            Deepgram powers live transcription, Gemini generates answers. On macOS 13+, interviewer
-            (system) audio is captured via Loopback — grant this app access under System Settings →
-            Privacy &amp; Security → Screen Recording.
+            Deepgram 负责实时转写，Gemini 负责生成答案。在 macOS 13+
+            上，面试官（系统）声音通过回环采集 —— 请在「系统设置 → 隐私与安全性 →
+            屏幕录制」中授予本应用权限。
           </p>
         </div>
         <div class="modal-foot">
-          <button id="saveSettings" class="btn primary">Save</button>
+          <button id="saveSettings" class="btn primary">保存</button>
         </div>
       </div>
     </div>
@@ -377,25 +488,25 @@
     <div id="pasteModal" class="modal hidden">
       <div class="modal-card">
         <div class="modal-head">
-          <h2>Paste material</h2>
+          <h2>粘贴资料</h2>
           <button id="closePaste" class="link-btn">✕</button>
         </div>
         <div class="modal-body">
           <label class="setting">
-            <span>Name</span>
-            <input type="text" id="pasteName" placeholder="e.g. My résumé" />
+            <span>名称</span>
+            <input type="text" id="pasteName" placeholder="例如：我的简历" />
           </label>
           <label class="setting">
-            <span>Content</span>
+            <span>内容</span>
             <textarea
               id="pasteText"
               rows="10"
-              placeholder="Paste a résumé, job description, or notes here…"
+              placeholder="把简历、职位描述或笔记粘贴到这里…"
             ></textarea>
           </label>
         </div>
         <div class="modal-foot">
-          <button id="savePaste" class="btn primary">Add to Knowledge Base</button>
+          <button id="savePaste" class="btn primary">添加到知识库</button>
         </div>
       </div>
     </div>
@@ -404,5 +515,8 @@
 
     <script src="deepgram.js"></script>
     <script src="app.js"></script>
+    <!-- capture-mode 必须在 app.js 之后、DOMContentLoaded 之前同步加载，
+         保证 init() 绑定的是覆盖后的 openSettings/saveSettings。 -->
+    <script src="capture-mode.js" data-question-capture-mode></script>
   </body>
 </html>

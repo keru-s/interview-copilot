@@ -1,6 +1,6 @@
 {
   "name": "interview-copilot",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Real-time interview assistant: dual-channel transcription (Deepgram) + LLM answers (DeepSeek/Gemini/OpenAI/Ollama), grounded in your own documents.",
   "main": "src/main/main.js",
   "type": "commonjs",
@@ -43,48 +43,11 @@
     "social": "cross-env ELECTRON_RUN_AS_NODE= electron tools/make-social.js",
     "package": "electron-packager . \"Real Time Interview Copilot\" --platform=darwin --arch=x64 --app-bundle-id=com.interview.copilot --icon=build/icon.icns --out=dist --overwrite --extend-info=extend-info.plist --prune=true",
     "sign": "codesign --force --deep --sign - \"dist/Real Time Interview Copilot-darwin-x64/Real Time Interview Copilot.app\"",
-    "dist": "electron-builder",
-    "dist:mac": "electron-builder --mac",
-    "dist:win": "electron-builder --win",
-    "dist:linux": "electron-builder --linux"
-  },
-  "build": {
-    "appId": "com.interview.copilot",
-    "productName": "Real Time Interview Copilot",
-    "directories": {
-      "output": "dist"
-    },
-    "files": [
-      "src/**/*",
-      "package.json"
-    ],
-    "mac": {
-      "category": "public.app-category.productivity",
-      "target": [
-        {
-          "target": "dmg",
-          "arch": [
-            "x64",
-            "arm64"
-          ]
-        }
-      ],
-      "extendInfo": {
-        "NSMicrophoneUsageDescription": "Real Time Interview Copilot transcribes your microphone (the candidate) in real time.",
-        "NSScreenCaptureUsageDescription": "Real Time Interview Copilot captures system audio (the interviewer) via screen-capture loopback."
-      }
-    },
-    "win": {
-      "target": [
-        "nsis"
-      ]
-    },
-    "linux": {
-      "target": [
-        "AppImage"
-      ],
-      "category": "Utility"
-    }
+    "dist": "electron-builder --config electron-builder.config.js",
+    "dist:mac": "electron-builder --mac --config electron-builder.config.js",
+    "dist:mac:local": "cross-env MAC_ARM64_ONLY=1 electron-builder --mac --config electron-builder.config.js",
+    "dist:win": "electron-builder --win --config electron-builder.config.js",
+    "dist:linux": "electron-builder --linux --config electron-builder.config.js"
   },
   "devDependencies": {
     "@electron/packager": "^20.0.0",

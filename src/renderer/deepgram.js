@@ -22,8 +22,10 @@ class DeepgramLive {
 
   connect() {
     const multi = this.language === 'multi';
+    // Nova-3 added Mandarin support in 2026-03; use it for zh instead of the older Nova-2 path.
+    const isMandarin = ['zh', 'zh-CN', 'zh-Hans'].includes(this.language);
     const params = new URLSearchParams({
-      model: multi ? 'nova-3' : 'nova-2',
+      model: multi || isMandarin ? 'nova-3' : 'nova-2',
       smart_format: 'true',
       interim_results: 'true',
       encoding: 'linear16',
