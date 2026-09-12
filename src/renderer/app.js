@@ -468,6 +468,31 @@ function onDgState(which, s, info) {
   }
 }
 
+// 影响音频/STT 管线的设置快照；任一字段变化且正在监听时都需要重建管线（stop + restart）。
+// 所有入口（设置弹窗、顶栏语言切换）统一走 rebuildPipelineIfChanged，避免行为不一致。
+function sttPipelineConfig(s) {
+  return {
+    sttProvider: s.sttProvider || 'deepgram',
+    sttLanguage: s.sttLanguage || 'en-US',
+    deepgramApiKey: s.deepgramApiKey || '',
+    doubaoApiKey: s.doubaoApiKey || '',
+    doubaoAppKey: s.doubaoAppKey || '',
+    doubaoAccessKey: s.doubaoAccessKey || '',
+    doubaoResourceId: s.doubaoResourceId || 'volc.seedasr.sauc.duration',
+    captureCandidateMic: s.captureCandidateMic !== false,
+  };
+}
+
+async function rebuildPipelineIfChanged(prev) {
+  if (!state.listening || !prev) return false;
+  const next = sttPipelineConfig(state.settings);
+  const changed = Object.keys(next).some((k) => prev[k] !== next[k]);
+  if (!changed) return false;
+  await stopListening();
+  await startListening();
+  return true;
+}
+
 async function stopListening() {
   state.listening = false;
   clearTimeout(state.autoTimer);
@@ -855,13 +880,12 @@ function bindEvents() {
   // 转写语言切换：持久化；若正在监听则自动重连以立即生效
   $('langSelect').onchange = async (e) => {
     const lang = e.target.value;
+    const prevPipeline = sttPipelineConfig(state.settings);
     state.settings = await window.api.saveSettings({ sttLanguage: lang });
     $('setSttLang').value = lang;
     const label = e.target.selectedOptions[0].textContent;
-    if (state.listening) {
+    if (await rebuildPipelineIfChanged(prevPipeline)) {
       toast(`转写语言已切换为 ${label}，正在重连…`);
-      await stopListening();
-      await startListening();
     } else {
       toast(`转写语言已设置为 ${label}`);
     }

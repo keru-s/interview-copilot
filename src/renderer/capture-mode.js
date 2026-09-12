@@ -5,7 +5,7 @@
 /* global $, state, renderHotkeyHint, toast, setStatus, handleSystemCaptureError */
 /* global getMicStream, getSystemStream, handleTranscript, wireStream, clearEmptyState */
 /* global addDaySeparator, setLive, setListeningUI, listInputDevices, stopListening */
-/* global triggerGenerate */
+/* global triggerGenerate, sttPipelineConfig, rebuildPipelineIfChanged */
 
 // Optional two-computer question-capture mode layered on top of the existing app.
 // The existing hotkey remains user-configurable in Settings, but its behavior becomes:
@@ -207,15 +207,8 @@ openSettings = function () {
 
 saveSettings = async function () {
   ensureCaptureSettingsUI();
-  // 影响音频管线的 STT 设置：监听中发生变化时需要重建管线（stop + restart）。
-  const prevPipeline = {
-    captureMic: state.settings.captureCandidateMic !== false,
-    sttProvider: state.settings.sttProvider || 'deepgram',
-    doubaoApiKey: state.settings.doubaoApiKey || '',
-    doubaoAppKey: state.settings.doubaoAppKey || '',
-    doubaoAccessKey: state.settings.doubaoAccessKey || '',
-    doubaoResourceId: state.settings.doubaoResourceId || 'volc.seedasr.sauc.duration',
-  };
+  // 影响音频管线的 STT 设置发生变化时统一走 rebuildPipelineIfChanged 重建管线。
+  const prevPipeline = sttPipelineConfig(state.settings);
   const extra = {
     sttProvider: $('setSttProvider').value || 'deepgram',
     doubaoApiKey: $('setDoubaoApiKey').value.trim(),
@@ -227,18 +220,7 @@ saveSettings = async function () {
   await baseSaveSettings();
   state.settings = await window.api.saveSettings(extra);
   applyCaptureSettingsUI();
-  // 避免“界面显示已切换，但实际仍在用旧配置采集/转写”。
-  const pipelineChanged =
-    prevPipeline.captureMic !== extra.captureCandidateMic ||
-    prevPipeline.sttProvider !== extra.sttProvider ||
-    prevPipeline.doubaoApiKey !== extra.doubaoApiKey ||
-    prevPipeline.doubaoAppKey !== extra.doubaoAppKey ||
-    prevPipeline.doubaoAccessKey !== extra.doubaoAccessKey ||
-    prevPipeline.doubaoResourceId !== extra.doubaoResourceId;
-  if (state.listening && pipelineChanged) {
-    await stopListening();
-    await startListening();
-  }
+  await rebuildPipelineIfChanged(prevPipeline);
 };
 
 function onSttState(provider, which, s, info) {
